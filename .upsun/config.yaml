@@ -1,0 +1,115 @@
+# Upsun configuration for the k6 Magento load-testing tool.
+#
+# TWO containers share one network-storage volume:
+#   app           PHP 8.5 web UI — mounts the volume at var/k6-reports
+#                 (matches index.php's PLATFORM_APP_DIR + '/var/k6-reports')
+#   loadtesting-k6 task — mounts the same volume at /reports
+#                 (matches run-task.sh's default REPORT_ROOT = $PLATFORM_APP_DIR/reports)
+#
+# Run a test:
+#   upsun task:run loadtesting-k6 --variable env:PROFILE=smoke --wait
+#   upsun task:run loadtesting-k6 --variable env:VUS=30 --variable env:DURATION=15m --wait
+#
+# Browse reports: https://<your-domain>/k6-reports/
+# Browse scripts: https://<your-domain>/
+#
+# Store secrets as environment variables (never committed here):
+#   upsun variable:create --level environment --name env:ADMIN_USER   --value k6 --visible-build false
+#   upsun variable:create --level environment --name env:ADMIN_PASSWORD --value '...' --sensitive true --visible-build false
+
+applications:
+
+  # ── Web UI ──────────────────────────────────────────────────────────────────
+  app:
+    source:
+      root: /
+
+    type: "php:8.5"
+
+    build:
+      flavor: none
+
+    mounts:
+      # Shared with the task; index.php reads PLATFORM_APP_DIR + '/var/k6-reports'
+      'var/k6-reports':
+        source: service
+        service: networkstorage
+        source_path: "var/k6-reports"
+
+    web:
+      locations:
+        # Script file browser — public/index.php
+        '/':
+          root: 'public'
+          index:
+            - index.php
+          passthru: '/index.php'
+          scripts: true
+          allow: true
+
+        # Report UI — k6/web/index.php routed from /k6-reports/*
+        # All requests pass through index.php; it reads the mount and
+        # uses readfile() so no static files need to be served here.
+        '/k6-reports':
+          root: 'k6/web'
+          index:
+            - index.php
+          passthru: '/index.php'
+          scripts: true
+          allow: false
+
+# ── On-demand k6 load test ─────────────────────────────────────────────────
+# Run with:
+#   upsun task:run loadtesting-k6 --variable env:PROFILE=smoke --wait
+# Secrets (ADMIN_USER / ADMIN_PASSWORD) are sensitive environment variables, not set here.
+# Reports land in /app/reports inside the task container (= var/k6-reports on storage).
+tasks:
+  loadtesting-k6:
+    container_profile: BALANCED
+    type: nodejs:24   # any runtime works — k6 is a static binary
+    source:
+      root: k6        # task sees: main.js, run-task.sh, lib/, scenarios/, web/
+
+    hooks:
+      build: |
+        set -e
+        K6_VERSION=v2.3.0
+        curl -fsSL "https://github.com/grafana/k6/releases/download/${K6_VERSION}/k6-${K6_VERSION}-linux-amd64.tar.gz" \
+          | tar -xz --strip-components=1 "k6-${K6_VERSION}-linux-amd64/k6"
+        ./k6 version
+
+    run:
+      command: |
+        bash run-task.sh
+      timeout: 7200   # 2 h
+
+    mounts:
+      # /reports maps to the shared network-storage volume.
+      # run-task.sh defaults REPORT_ROOT to $PLATFORM_APP_DIR/reports = /app/reports.
+      "/reports":
+        source: service
+        service: networkstorage
+        source_path: "var/k6-reports"
+
+    variables:
+      env:
+        # Override these per-run with --variable env:NAME=value
+        URL: "https://www.yourshop.com"   # ← set to your staging URL
+        PROFILE: combined
+        VUS: "25"
+        ADMIN_VUS: "2"
+        DURATION: 3m
+
+# ── Shared network storage ─────────────────────────────────────────────────
+services:
+  networkstorage:
+    type: "network-storage:1.0"
+
+# ── Routes ─────────────────────────────────────────────────────────────────
+routes:
+  "https://{default}/":
+    type: upstream
+    upstream: "app:http"
+  "https://www.{default}/":
+    type: redirect
+    to: "https://{default}/"

@@ -1,0 +1,5 @@
+# k6 binary is downloaded by the Upsun build hook — do not commit it
+k6/k6
+
+# Local report output when running run-task.sh outside Upsun
+k6/reports/

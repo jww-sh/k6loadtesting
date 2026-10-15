@@ -34,7 +34,11 @@ function fmtBytesRate(v) {
 
 function fmtNum(v, decimals = 0) {
   if (v == null || isNaN(v)) return '—';
-  return parseFloat(v).toLocaleString('en', { maximumFractionDigits: decimals });
+  const n = parseFloat(v);
+  const fixed = n.toFixed(decimals);
+  const parts = fixed.split('.');
+  parts[0] = parts[0].replace(/\B(?=(\d{3})+(?!\d))/g, ',');
+  return decimals > 0 ? parts.join('.') : parts[0];
 }
 
 function fmtDuration(ms) {

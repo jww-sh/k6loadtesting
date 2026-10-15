@@ -242,6 +242,17 @@ label{font-size:10px;font-weight:700;color:var(--text-dim);letter-spacing:.07em;
   font-size:11px;font-weight:600;border:1px solid var(--err-border);border-radius:5px;
   cursor:pointer;line-height:1;transition:all .15s}
 .btn-danger-sm:hover{background:var(--err-bg);border-color:var(--err-text)}
+.notice-admin{display:flex;align-items:flex-start;gap:8px;
+  background:var(--warn-bg);border:1px solid var(--warn-border);border-radius:6px;
+  padding:10px 14px;font-size:12px;color:var(--warn-text);line-height:1.5}
+.notice-admin.admin-ok{background:var(--ok-bg);border-color:var(--ok-border);color:var(--ok-text)}
+.notice-admin.admin-ok a,.notice-admin a{color:inherit;text-decoration:underline}
+.form-check-row{display:flex;align-items:center;gap:8px;margin-top:2px}
+.form-check-row input[type=checkbox]{width:16px;height:16px;accent-color:var(--purple);
+  cursor:pointer;flex-shrink:0}
+.form-check-row label{font-size:13px;color:var(--text-muted);cursor:pointer;
+  text-transform:none;letter-spacing:0;font-weight:400}
+.form-group-inline{display:flex;flex-direction:column;gap:6px}
 
 /* ── Banners ── */
 .banner{margin-top:18px;padding:14px 18px;border-radius:8px;font-size:13px;
@@ -773,6 +784,59 @@ if (str_starts_with($_uri, '/k6-reports')) {
         exit;
     }
 
+    // Inject a themed sticky nav bar into report.html instead of serving it raw.
+    if (basename($file) === 'report.html' && $ext === 'html') {
+        $runName = rawurldecode(explode('/', $path, 2)[0]);
+        $runHref = '/k6-reports/' . rawurlencode($runName);
+        $baseDir = dirname($file);
+
+        $navLinks = '';
+        if (is_file("$baseDir/failures.jsonl") && filesize("$baseDir/failures.jsonl") > 0) {
+            $navLinks .= '<a href="' . $runHref . '/failures" class="k6nav-link k6nav-warn">&#x26A0; Failures</a>';
+        }
+        foreach (['k6.log', 'summary.json', 'run-info.json', 'console.log'] as $f) {
+            if (is_file("$baseDir/$f")) {
+                $navLinks .= '<a href="' . $runHref . '/' . $f . '" class="k6nav-link">' . $f . '</a>';
+            }
+        }
+
+        $navBar = <<<NAV
+        <style>
+        .k6nav{position:sticky;top:0;z-index:99999;display:flex;align-items:center;gap:8px;
+          flex-wrap:wrap;background:#191C1E;border-bottom:1px solid #2B3134;
+          padding:0 20px;min-height:48px;font-family:'Space Grotesk',system-ui,sans-serif;
+          box-shadow:0 1px 4px rgba(0,0,0,.5)}
+        .k6nav a{text-decoration:none;transition:color .12s}
+        .k6nav-back{color:#B4BABD;font-size:13px}
+        .k6nav-back:hover{color:#E1E3E4}
+        .k6nav-sep{color:#41484D;font-size:16px;user-select:none}
+        .k6nav-title{color:#E1E3E4;font-size:13px;font-weight:600}
+        .k6nav-spacer{flex:1}
+        .k6nav-link{color:#B4BABD;font-size:12px;padding:4px 10px;border:1px solid #2B3134;
+          border-radius:5px;white-space:nowrap}
+        .k6nav-link:hover{border-color:#6046FF;color:#806BFF}
+        .k6nav-warn{color:#fde68a;border-color:#5a4f20}
+        .k6nav-warn:hover{border-color:#fde68a;color:#fde68a}
+        </style>
+        <div class="k6nav">
+          <a href="/" class="k6nav-back">&#x2190; All runs</a>
+          <span class="k6nav-sep">/</span>
+          <a href="{$runHref}" class="k6nav-back">{$h($runName)}</a>
+          <span class="k6nav-sep">/</span>
+          <span class="k6nav-title">report.html</span>
+          <div class="k6nav-spacer"></div>
+          {$navLinks}
+        </div>
+        NAV;
+
+        $content = file_get_contents($file);
+        // Inject nav bar immediately after the opening <body> tag
+        $content = preg_replace_callback('/<body[^>]*>/i', fn($m) => $m[0] . $navBar, $content, 1);
+        header('Content-Type: text/html; charset=utf-8');
+        echo $content;
+        exit;
+    }
+
     header('Content-Type: ' . $fileTypes[$ext]);
     header('Content-Length: ' . filesize($file));
     readfile($file);
@@ -794,58 +858,98 @@ if (empty($_SESSION['csrf'])) {
     $_SESSION['csrf'] = bin2hex(random_bytes(24));
 }
 
-$triggerResult = null;
-
+// ── POST: run_task ────────────────────────────────────────────────────────────
 if ($canTrigger
     && $_SERVER['REQUEST_METHOD'] === 'POST'
     && ($_POST['action'] ?? '') === 'run_task'
 ) {
     if (!hash_equals($_SESSION['csrf'] ?? '', $_POST['csrf'] ?? '')) {
-        $triggerResult = ['ok' => false, 'output' => 'Invalid security token — please reload.', 'exitCode' => -1];
+        $r = ['ok' => false, 'output' => 'Invalid security token — please reload.', 'exitCode' => -1];
     } else {
         $allowedProfiles = ['combined', 'graphql', 'storefront', 'admin', 'crawler', 'smoke', 'cleanup'];
-        $profile = $_POST['profile'] ?? 'combined';
+        $profile = $_POST['profile'] ?? 'crawler';
 
         if (!in_array($profile, $allowedProfiles, true)) {
-            $triggerResult = ['ok' => false, 'output' => "Unknown profile '$profile'.", 'exitCode' => -1];
+            $r = ['ok' => false, 'output' => "Unknown profile '$profile'.", 'exitCode' => -1];
         } else {
             $vars = ['env:PROFILE' => $profile];
-            if ($profile !== 'cleanup') {
-                $vus = max(1, min(500, (int) ($_POST['vus'] ?? 25)));
-                $vars['env:VUS'] = (string) $vus;
-                if (in_array($profile, ['combined', 'graphql', 'admin', 'smoke'], true)) {
-                    $vars['env:ADMIN_VUS'] = (string) max(0, min(50, (int) ($_POST['admin_vus'] ?? 2)));
-                }
-                if ($profile !== 'smoke') {
-                    $dur = $_POST['duration'] ?? '3m';
-                    $vars['env:DURATION'] = preg_match('/^\d+[smh]$/', $dur) ? $dur : '3m';
-                }
-            }
+
             $urlOverride = trim($_POST['url_override'] ?? '');
             if ($urlOverride !== '' && preg_match('#^https?://#', $urlOverride)) {
                 $vars['env:URL'] = rtrim($urlOverride, '/');
             }
-            $triggerResult = runTaskViaCli($cliBin, 'loadtesting-k6', $vars);
-            $triggerResult['profile'] = $profile;
-            $triggerResult['vars']    = $vars;
+            $hasLoad = !in_array($profile, ['cleanup', 'smoke'], true);
+            $hasVus  = !in_array($profile, ['cleanup', 'smoke', 'admin'], true);
+            if ($hasVus) {
+                $vars['env:VUS'] = (string) max(1, min(500, (int) ($_POST['vus'] ?? 10)));
+            }
+            if (in_array($profile, ['combined', 'graphql', 'admin'], true)) {
+                $vars['env:ADMIN_VUS'] = (string) max(0, min(50, (int) ($_POST['admin_vus'] ?? 2)));
+            }
+            if ($hasLoad) {
+                $dur = $_POST['duration'] ?? '10m';
+                $vars['env:DURATION'] = preg_match('/^\d+[smh]$/', $dur) ? $dur : '10m';
+                $ramp = $_POST['ramp'] ?? '';
+                if ($ramp !== '' && preg_match('/^\d+[smh]$/', $ramp)) {
+                    $vars['env:RAMP'] = $ramp;
+                }
+            }
+            if (in_array($profile, ['combined', 'graphql', 'storefront', 'crawler'], true)) {
+                if (($_POST['fpc'] ?? 'ON') === 'OFF') $vars['env:FPC'] = 'OFF';
+            }
+            if (in_array($profile, ['combined', 'graphql', 'admin', 'smoke', 'cleanup'], true)) {
+                $adminPath = trim($_POST['admin_path'] ?? '');
+                if ($adminPath !== '' && preg_match('#^[a-zA-Z0-9_/\-]+$#', $adminPath)) {
+                    $vars['env:ADMIN_PATH'] = $adminPath;
+                }
+            }
+            if ($profile === 'crawler') {
+                $vars['env:MAX_DEPTH'] = (string) max(1, min(20, (int) ($_POST['max_depth'] ?? 5)));
+            }
+            if ($profile === 'smoke') {
+                $sg = trim($_POST['smoke_groups'] ?? '');
+                if ($sg !== '' && preg_match('/^[a-z,]+$/', $sg)) $vars['env:SMOKE_GROUPS'] = $sg;
+            }
+            if ($profile === 'cleanup') {
+                if (!empty($_POST['cleanup_customers'])) $vars['env:CLEANUP_CUSTOMERS'] = '1';
+                if (!empty($_POST['cleanup_admins']))    $vars['env:CLEANUP_ADMINS']    = '1';
+            }
+            $bau = trim($_POST['basic_auth_user'] ?? '');
+            $bap = trim($_POST['basic_auth_password'] ?? '');
+            if ($bau !== '') $vars['env:BASIC_AUTH_USER']     = $bau;
+            if ($bap !== '') $vars['env:BASIC_AUTH_PASSWORD'] = $bap;
+
+            $r = runTaskViaCli($cliBin, 'loadtesting-k6', $vars);
+            $r['profile'] = $profile;
+            $r['vars']    = $vars;
         }
     }
-    $_SESSION['csrf'] = bin2hex(random_bytes(24));
+    $_SESSION['csrf']  = bin2hex(random_bytes(24));
+    $_SESSION['flash'] = ['type' => 'trigger', 'result' => $r];
+    header('Location: /', true, 303);
+    exit;
 }
 
-$deleteResult = null;
-
+// ── POST: delete_run ──────────────────────────────────────────────────────────
 if ($_SERVER['REQUEST_METHOD'] === 'POST'
     && ($_POST['action'] ?? '') === 'delete_run'
 ) {
     if (!hash_equals($_SESSION['csrf'] ?? '', $_POST['csrf'] ?? '')) {
-        $deleteResult = ['ok' => false, 'error' => 'Invalid security token — please reload.'];
+        $r = ['ok' => false, 'error' => 'Invalid security token — please reload.'];
     } else {
-        $runToDelete  = basename($_POST['run'] ?? '');
-        $deleteResult = deleteRun($reportsBase, $runToDelete);
+        $r = deleteRun($reportsBase, basename($_POST['run'] ?? ''));
     }
-    $_SESSION['csrf'] = bin2hex(random_bytes(24));
+    $_SESSION['csrf']  = bin2hex(random_bytes(24));
+    $_SESSION['flash'] = ['type' => 'delete', 'result' => $r];
+    header('Location: /', true, 303);
+    exit;
 }
+
+// ── Read session flash (set by POST-Redirect-GET above) ───────────────────────
+$flash         = $_SESSION['flash'] ?? null;
+unset($_SESSION['flash']);
+$triggerResult = ($flash['type'] ?? '') === 'trigger' ? $flash['result'] : null;
+$deleteResult  = ($flash['type'] ?? '') === 'delete'  ? $flash['result'] : null;
 
 $csrf = $h($_SESSION['csrf']);
 
@@ -877,11 +981,20 @@ if ($triggerResult !== null) {
 }
 
 if ($canTrigger) {
-    $envLabel = $environmentId !== '' ? ' on <code>' . $h($environmentId) . '</code>' : '';
+    $envLabel    = $environmentId !== '' ? ' on <code>' . $h($environmentId) . '</code>' : '';
+    $adminOk     = (getenv('ADMIN_USER') !== false && getenv('ADMIN_USER') !== '');
+    $adminBadge  = $adminOk
+        ? '<span class="notice-admin admin-ok">&#x2713; Admin credentials set — admin and customer flows will run.</span>'
+        : '<span class="notice-admin">&#x26A0; <span><code>ADMIN_USER</code> / <code>ADMIN_PASSWORD</code> not set — '
+          . 'admin and customer flows are disabled. '
+          . '<a href="https://docs.upsun.com/development/variables/set-variables.html" target="_blank" rel="noopener">How to set env vars</a></span></span>';
+
+    $profiles = ['crawler', 'combined', 'graphql', 'storefront', 'admin', 'smoke', 'cleanup'];
     $optHtml  = implode('', array_map(
-        fn($p) => '<option value="' . $p . '">' . $p . '</option>',
-        ['combined', 'graphql', 'storefront', 'admin', 'crawler', 'smoke', 'cleanup']
+        fn($p) => '<option value="' . $p . '"' . ($p === 'crawler' ? ' selected' : '') . '>' . $p . '</option>',
+        $profiles
     ));
+
     $triggerSection = <<<HTML
     <section class="card">
       <h2>Run a load test{$envLabel}</h2>
@@ -890,46 +1003,133 @@ if ($canTrigger) {
         <input type="hidden" name="action" value="run_task">
         <input type="hidden" name="csrf"   value="{$csrf}">
         <div class="form-grid">
+
           <div class="form-group">
             <label for="f-profile">Profile</label>
             <select id="f-profile" name="profile" class="form-control" onchange="toggleFields(this.value)">{$optHtml}</select>
           </div>
+
+          <!-- URL (all profiles) -->
+          <div class="form-group form-group-wide" id="fg-url">
+            <label for="f-url">URL override <span class="label-hint">(optional — uses task default if blank)</span></label>
+            <input id="f-url" name="url_override" type="url" class="form-control" placeholder="https://staging.yourshop.com">
+          </div>
+
+          <!-- VUs: combined, graphql, storefront, crawler -->
           <div class="form-group" id="fg-vus">
             <label for="f-vus">VUs</label>
-            <input id="f-vus" name="vus" type="number" class="form-control" min="1" max="500" value="25">
+            <input id="f-vus" name="vus" type="number" class="form-control" min="1" max="500" value="10">
           </div>
+
+          <!-- Admin VUs: combined, graphql, admin -->
           <div class="form-group" id="fg-admin-vus">
             <label for="f-admin-vus">Admin VUs</label>
             <input id="f-admin-vus" name="admin_vus" type="number" class="form-control" min="0" max="50" value="2">
           </div>
+
+          <!-- Duration: combined, graphql, storefront, admin, crawler -->
           <div class="form-group" id="fg-duration">
             <label for="f-duration">Duration</label>
-            <input id="f-duration" name="duration" type="text" class="form-control" value="3m" placeholder="3m / 10m / 1h" pattern="\\d+[smh]">
+            <input id="f-duration" name="duration" type="text" class="form-control" value="10m" placeholder="10m / 30m / 1h" pattern="\\d+[smh]">
           </div>
-          <div class="form-group form-group-wide">
-            <label for="f-url">URL override <span class="label-hint">(optional)</span></label>
-            <input id="f-url" name="url_override" type="url" class="form-control" placeholder="https://staging.yourshop.com">
+
+          <!-- Ramp: combined, graphql, storefront, admin, crawler -->
+          <div class="form-group" id="fg-ramp">
+            <label for="f-ramp">Ramp-up <span class="label-hint">(optional)</span></label>
+            <input id="f-ramp" name="ramp" type="text" class="form-control" placeholder="1m" pattern="\\d+[smh]">
           </div>
+
+          <!-- FPC: combined, graphql, storefront, crawler -->
+          <div class="form-group" id="fg-fpc">
+            <label for="f-fpc">Full-Page Cache</label>
+            <select id="f-fpc" name="fpc" class="form-control">
+              <option value="ON">ON (warm cache, realistic)</option>
+              <option value="OFF">OFF (bust cache, worst-case)</option>
+            </select>
+          </div>
+
+          <!-- Admin path: combined, graphql, admin, smoke, cleanup -->
+          <div class="form-group" id="fg-admin-path">
+            <label for="f-admin-path">Admin path <span class="label-hint">(default: admin)</span></label>
+            <input id="f-admin-path" name="admin_path" type="text" class="form-control" placeholder="admin">
+          </div>
+
+          <!-- Crawler options: crawler -->
+          <div class="form-group" id="fg-crawler">
+            <label for="f-max-depth">Max crawl depth</label>
+            <input id="f-max-depth" name="max_depth" type="number" class="form-control" min="1" max="20" value="5">
+          </div>
+
+          <!-- Smoke options: smoke -->
+          <div class="form-group form-group-wide" id="fg-smoke">
+            <label for="f-smoke-groups">Smoke groups <span class="label-hint">(comma-separated: web, graphql, admin, varnish)</span></label>
+            <input id="f-smoke-groups" name="smoke_groups" type="text" class="form-control" placeholder="web,graphql,admin,varnish">
+          </div>
+
+          <!-- Cleanup options: cleanup -->
+          <div class="form-group form-group-wide form-group-inline" id="fg-cleanup">
+            <label>Cleanup options</label>
+            <div class="form-check-row">
+              <input type="checkbox" id="f-cleanup-customers" name="cleanup_customers" value="1">
+              <label for="f-cleanup-customers">Delete seeded customers (<code>CLEANUP_CUSTOMERS</code>)</label>
+            </div>
+            <div class="form-check-row">
+              <input type="checkbox" id="f-cleanup-admins" name="cleanup_admins" value="1">
+              <label for="f-cleanup-admins">Delete seeded admin users (<code>CLEANUP_ADMINS</code>)</label>
+            </div>
+          </div>
+
+          <!-- Basic auth: all except cleanup -->
+          <div class="form-group" id="fg-basic-auth-user">
+            <label for="f-bau">HTTP Basic auth user <span class="label-hint">(optional)</span></label>
+            <input id="f-bau" name="basic_auth_user" type="text" class="form-control" autocomplete="username" placeholder="staging">
+          </div>
+          <div class="form-group" id="fg-basic-auth-pass">
+            <label for="f-bap">HTTP Basic auth password <span class="label-hint">(optional)</span></label>
+            <input id="f-bap" name="basic_auth_password" type="password" class="form-control" autocomplete="current-password">
+          </div>
+
+        </div><!-- /.form-grid -->
+
+        <!-- Admin credential notice: combined, graphql, admin, smoke, cleanup -->
+        <div id="fg-admin-notice" style="margin:10px 0 14px">
+          {$adminBadge}
         </div>
+
         <div class="btn-row">
           <button type="submit" class="btn-primary">Start task</button>
-          <button type="button" class="btn-ghost" onclick="runCleanup()">Run cleanup</button>
+          <button type="button" class="btn-ghost" onclick="runProfile('cleanup')">Run cleanup</button>
         </div>
       </form>
       {$bannerHtml}
       <script>
-      function toggleFields(p){
-        var noLoad=['cleanup'],noAdmin=['storefront','crawler'],noDur=['smoke'];
-        document.getElementById('fg-vus').style.display=noLoad.includes(p)?'none':'';
-        document.getElementById('fg-admin-vus').style.display=(noLoad.includes(p)||noAdmin.includes(p))?'none':'';
-        document.getElementById('fg-duration').style.display=(noLoad.includes(p)||noDur.includes(p))?'none':'';
-      }
-      function runCleanup(){
-        document.getElementById('f-profile').value='cleanup';
-        toggleFields('cleanup');
-        document.getElementById('run-form').submit();
-      }
-      toggleFields(document.getElementById('f-profile').value);
+      (function(){
+        // Which field groups each profile shows
+        var GROUPS = {
+          crawler:    ['url','vus','duration','ramp','fpc','crawler','basic-auth-user','basic-auth-pass'],
+          combined:   ['url','vus','admin-vus','duration','ramp','fpc','admin-path','basic-auth-user','basic-auth-pass','admin-notice'],
+          graphql:    ['url','vus','admin-vus','duration','ramp','fpc','admin-path','basic-auth-user','basic-auth-pass','admin-notice'],
+          storefront: ['url','vus','duration','ramp','fpc','basic-auth-user','basic-auth-pass'],
+          admin:      ['url','admin-vus','duration','ramp','admin-path','basic-auth-user','basic-auth-pass','admin-notice'],
+          smoke:      ['url','smoke','admin-path','basic-auth-user','basic-auth-pass','admin-notice'],
+          cleanup:    ['admin-path','cleanup','admin-notice'],
+        };
+        var ALL = ['url','vus','admin-vus','duration','ramp','fpc','crawler','smoke','cleanup','admin-path','basic-auth-user','basic-auth-pass','admin-notice'];
+        function toggleFields(p){
+          var show = GROUPS[p] || [];
+          ALL.forEach(function(g){
+            var el = document.getElementById('fg-'+g);
+            if(el) el.style.display = show.includes(g) ? '' : 'none';
+          });
+        }
+        window.toggleFields = toggleFields;
+        window.runProfile = function(p){
+          document.getElementById('f-profile').value = p;
+          toggleFields(p);
+          document.getElementById('run-form').submit();
+        };
+        toggleFields(document.getElementById('f-profile').value);
+      })();
       </script>
     </section>
     HTML;

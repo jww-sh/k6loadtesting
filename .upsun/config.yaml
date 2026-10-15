@@ -10,8 +10,7 @@
 #   upsun task:run loadtesting-k6 --variable env:PROFILE=smoke --wait
 #   upsun task:run loadtesting-k6 --variable env:VUS=30 --variable env:DURATION=15m --wait
 #
-# Browse reports: https://<your-domain>/k6-reports/
-# Browse scripts: https://<your-domain>/
+# Web UI: https://<your-domain>/
 #
 # Store secrets as environment variables (never committed here):
 #   upsun variable:create --level environment --name env:ADMIN_USER   --value k6 --visible-build false
@@ -63,13 +62,9 @@ applications:
           scripts: true
           allow: true
 
-        # Report UI — k6/web/index.php routed from /k6-reports/*
-        # All requests pass through index.php; it reads the mount and
-        # uses readfile() so no static files need to be served here.
+        # /k6-reports/* — routed by public/index.php (all routing is in one file).
         '/k6-reports':
-          root: 'k6/web'
-          index:
-            - index.php
+          root: 'public'
           passthru: '/index.php'
           scripts: true
           allow: false
@@ -93,6 +88,9 @@ tasks:
         curl -fsSL "https://github.com/grafana/k6/releases/download/${K6_VERSION}/k6-${K6_VERSION}-linux-amd64.tar.gz" \
           | tar -xz --strip-components=1 "k6-${K6_VERSION}-linux-amd64/k6"
         ./k6 version
+        # k6-reporter: HTML summary report generator (handleSummary)
+        curl -fsSL "https://raw.githubusercontent.com/benc-uk/k6-reporter/main/dist/bundle.js" \
+          -o lib/k6-reporter.js
 
     run:
       command: |

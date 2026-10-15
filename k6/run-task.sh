@@ -19,9 +19,7 @@ mkdir -p "$OUT"
 echo "$("$K6_BIN" version | head -1) | profile=${PROFILE} url=${URL:-} vus=${VUS:-} duration=${DURATION:-}"
 echo "reports -> ${OUT}"
 
-export K6_WEB_DASHBOARD=true
-export K6_WEB_DASHBOARD_PORT=-1
-export K6_WEB_DASHBOARD_EXPORT="${OUT}/report.html"
+export K6_REPORT_DIR="${OUT}"
 
 STARTED=$(date -u +%Y-%m-%dT%H:%M:%SZ)
 # Console output (bootstrap info, K6FAIL failure records) goes to console.log verbatim;

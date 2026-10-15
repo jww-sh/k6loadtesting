@@ -38,7 +38,7 @@ $esc = fn($s) => htmlspecialchars((string) $s, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF
  */
 function upsunBearerToken(string $apiToken): string
 {
-    $ch = curl_init('https://auth.api.upsun.com/oauth2/token');
+    $ch = curl_init('https://auth.upsun.com/oauth2/token');
     curl_setopt_array($ch, [
         CURLOPT_POST           => true,
         CURLOPT_POSTFIELDS     => http_build_query([
@@ -47,6 +47,7 @@ function upsunBearerToken(string $apiToken): string
         ]),
         CURLOPT_RETURNTRANSFER => true,
         CURLOPT_TIMEOUT        => 10,
+        CURLOPT_USERPWD        => 'platform-api-user:',   // required by Upsun OAuth2 server
         CURLOPT_HTTPHEADER     => ['Content-Type: application/x-www-form-urlencoded'],
     ]);
     $body   = curl_exec($ch);

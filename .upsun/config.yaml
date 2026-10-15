@@ -32,11 +32,17 @@ applications:
     hooks:
       build: |
         set -e
-        # Install the Upsun CLI so the web UI can trigger the task via shell.
-        # The binary lands in bin/upsun (relative to the app root = /app/bin/upsun at runtime).
-        echo "Installing Upsun CLI..."
+        # Download the Upsun CLI binary directly from the GitHub release tarball.
+        # Bypasses the installer script so INSTALL_DIR quoting quirks can't bite us.
+        # The binary lands at bin/upsun (= /app/bin/upsun at runtime).
         mkdir -p bin
-        INSTALL_DIR="$PWD/bin" curl -fsSL https://raw.githubusercontent.com/upsun/cli/main/installer.sh | bash
+        CLI_VERSION=$(curl -fsSL https://api.github.com/repos/upsun/cli/releases/latest \
+          | python3 -c "import sys,json; print(json.load(sys.stdin)['tag_name'].lstrip('v'))")
+        echo "Downloading Upsun CLI v${CLI_VERSION}..."
+        curl -fsSL \
+          "https://github.com/upsun/cli/releases/download/v${CLI_VERSION}/upsun_${CLI_VERSION}_linux_amd64.tar.gz" \
+          | tar -xz -C bin upsun
+        chmod +x bin/upsun
         bin/upsun --version
 
     mounts:

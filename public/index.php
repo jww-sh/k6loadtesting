@@ -813,7 +813,7 @@ if ($canTrigger
     if (!hash_equals($_SESSION['csrf'] ?? '', $_POST['csrf'] ?? '')) {
         $r = ['ok' => false, 'output' => 'Invalid security token — please reload.', 'exitCode' => -1];
     } else {
-        $allowedProfiles = ['combined', 'graphql', 'storefront', 'admin', 'crawler', 'smoke', 'cleanup'];
+        $allowedProfiles = ['http', 'combined', 'graphql', 'storefront', 'admin', 'crawler', 'smoke', 'cleanup'];
         $profile = $_POST['profile'] ?? 'crawler';
 
         if (!in_array($profile, $allowedProfiles, true)) {
@@ -840,6 +840,16 @@ if ($canTrigger
                 if ($ramp !== '' && preg_match('/^\d+[smh]$/', $ramp)) {
                     $vars['env:RAMP'] = $ramp;
                 }
+            }
+            if ($profile === 'http') {
+                $httpMethod = strtoupper(trim($_POST['http_method'] ?? 'GET'));
+                if (in_array($httpMethod, ['GET','POST','PUT','PATCH','DELETE','HEAD','OPTIONS'], true)) {
+                    $vars['env:HTTP_METHOD'] = $httpMethod;
+                }
+                $httpPath = trim($_POST['http_path'] ?? '/');
+                if ($httpPath !== '' && $httpPath !== '/') $vars['env:HTTP_PATH'] = $httpPath;
+                $httpBody = trim($_POST['http_body'] ?? '');
+                if ($httpBody !== '') $vars['env:HTTP_BODY'] = $httpBody;
             }
             if (in_array($profile, ['combined', 'graphql', 'storefront', 'crawler'], true)) {
                 if (($_POST['fpc'] ?? 'ON') === 'OFF') $vars['env:FPC'] = 'OFF';
@@ -944,11 +954,18 @@ if ($canTrigger) {
           . 'admin and customer flows are disabled. '
           . '<a href="https://docs.upsun.com/development/variables/set-variables.html" target="_blank" rel="noopener">How to set env vars</a></span></span>';
 
-    $profiles = ['crawler', 'combined', 'graphql', 'storefront', 'admin', 'smoke', 'cleanup'];
-    $optHtml  = implode('', array_map(
+    $generalProfiles = ['http', 'crawler'];
+    $magentoProfiles = ['combined', 'graphql', 'storefront', 'admin', 'smoke', 'cleanup'];
+    $optGeneral = implode('', array_map(
         fn($p) => '<option value="' . $p . '"' . ($p === 'crawler' ? ' selected' : '') . '>' . $p . '</option>',
-        $profiles
+        $generalProfiles
     ));
+    $optMagento = implode('', array_map(
+        fn($p) => '<option value="' . $p . '">' . $p . '</option>',
+        $magentoProfiles
+    ));
+    $optHtml = '<optgroup label="General">' . $optGeneral . '</optgroup>'
+             . '<optgroup label="Magento">' . $optMagento . '</optgroup>';
 
     $triggerSection = <<<HTML
     <section class="card">
@@ -968,6 +985,31 @@ if ($canTrigger) {
           <div class="form-group form-group-wide" id="fg-url">
             <label for="f-url">URL override <span class="label-hint">(optional — uses task default if blank)</span></label>
             <input id="f-url" name="url_override" type="url" class="form-control" placeholder="https://staging.yourshop.com">
+          </div>
+
+          <!-- HTTP method: http -->
+          <div class="form-group" id="fg-http-method">
+            <label for="f-http-method">HTTP method</label>
+            <select id="f-http-method" name="http_method" class="form-control">
+              <option value="GET" selected>GET</option>
+              <option value="POST">POST</option>
+              <option value="PUT">PUT</option>
+              <option value="PATCH">PATCH</option>
+              <option value="DELETE">DELETE</option>
+              <option value="HEAD">HEAD</option>
+            </select>
+          </div>
+
+          <!-- HTTP path: http -->
+          <div class="form-group" id="fg-http-path">
+            <label for="f-http-path">Path <span class="label-hint">(default: /)</span></label>
+            <input id="f-http-path" name="http_path" type="text" class="form-control" placeholder="/api/v1/products">
+          </div>
+
+          <!-- HTTP body: http -->
+          <div class="form-group form-group-wide" id="fg-http-body">
+            <label for="f-http-body">Request body <span class="label-hint">(optional — for POST/PUT/PATCH)</span></label>
+            <input id="f-http-body" name="http_body" type="text" class="form-control" placeholder='{"key":"value"}'>
           </div>
 
           <!-- VUs: combined, graphql, storefront, crawler -->
@@ -1071,6 +1113,7 @@ if ($canTrigger) {
       (function(){
         // Which field groups each profile shows
         var GROUPS = {
+          http:       ['url','vus','duration','ramp','http-method','http-path','http-body','basic-auth-user','basic-auth-pass'],
           crawler:    ['url','vus','duration','ramp','fpc','crawler','basic-auth-user','basic-auth-pass'],
           combined:   ['url','vus','admin-vus','duration','ramp','fpc','admin-path','admin-creds-user','admin-creds-pass','basic-auth-user','basic-auth-pass','admin-notice'],
           graphql:    ['url','vus','admin-vus','duration','ramp','fpc','admin-path','admin-creds-user','admin-creds-pass','basic-auth-user','basic-auth-pass','admin-notice'],
@@ -1079,7 +1122,7 @@ if ($canTrigger) {
           smoke:      ['url','smoke','admin-path','admin-creds-user','admin-creds-pass','basic-auth-user','basic-auth-pass','admin-notice'],
           cleanup:    ['admin-path','admin-creds-user','admin-creds-pass','cleanup','admin-notice'],
         };
-        var ALL = ['url','vus','admin-vus','duration','ramp','fpc','crawler','smoke','cleanup','admin-path','admin-creds-user','admin-creds-pass','basic-auth-user','basic-auth-pass','admin-notice'];
+        var ALL = ['url','vus','admin-vus','duration','ramp','fpc','crawler','smoke','cleanup','admin-path','admin-creds-user','admin-creds-pass','basic-auth-user','basic-auth-pass','admin-notice','http-method','http-path','http-body'];
         function toggleFields(p){
           var show = GROUPS[p] || [];
           ALL.forEach(function(g){

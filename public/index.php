@@ -3,11 +3,12 @@
  * k6 Load Testing — single entry point for all routes.
  *
  * Routes:
- *   GET  /                         main page: task trigger + runs table
- *   POST /  action=run_task        fire the loadtesting-k6 Upsun task
- *   GET  /k6-reports/              → redirect to /
- *   GET  /k6-reports/<run>/failures failures detail page
- *   GET  /k6-reports/<run>/<file>  serve report.html / summary.json / k6.log / etc.
+ *   GET  /                           main page: task trigger + runs table
+ *   POST /  action=run_task          fire the loadtesting-k6 Upsun task
+ *   GET  /k6-reports/                → redirect to /
+ *   GET  /k6-reports/<run>           run detail: info + metrics + log + files
+ *   GET  /k6-reports/<run>/failures  failures detail page
+ *   GET  /k6-reports/<run>/<file>    serve report.html / summary.json / k6.log / etc.
  */
 
 $_uri   = parse_url($_SERVER['REQUEST_URI'] ?? '/', PHP_URL_PATH);
@@ -30,154 +31,256 @@ $CSS = <<<'CSS'
   --err-bg:#2e1a1a;--err-border:#5a2d2d;--err-text:#fca5a5;
   --warn-bg:#2a2510;--warn-border:#5a4f20;--warn-text:#fde68a;
   --font:'Space Grotesk','Instrument Sans',sans-serif;
-  --mono:'Space Mono',ui-monospace,monospace
+  --mono:'Space Mono',ui-monospace,monospace;
+  --shadow:0 1px 3px rgba(0,0,0,.4),0 1px 2px rgba(0,0,0,.3);
+  --shadow-sm:0 1px 2px rgba(0,0,0,.3)
 }
 [data-theme="light"]{
-  --bg:#F7F8F8;--surface:#fff;--border:#E1E3E4;--border-hi:#B4BABD;
-  --text:#2B3134;--text-muted:#646F75;--text-dim:#8A9399;
+  --bg:#F4F6F7;--surface:#fff;--border:#DDE1E3;--border-hi:#B4BABD;
+  --text:#1C2023;--text-muted:#556067;--text-dim:#8A9399;
   --purple:#4D38CC;--purple-hover:#3a2b99;--purple-light:#6046FF;
-  --ok-bg:#d4edda;--ok-border:#a8d5b5;--ok-text:#155724;
-  --err-bg:#f8d7da;--err-border:#f5c6c2;--err-text:#721c24;
-  --warn-bg:#fff3cd;--warn-border:#ffc107;--warn-text:#856404
+  --ok-bg:#e6f4ea;--ok-border:#a8d5b5;--ok-text:#1a5c2a;
+  --err-bg:#fce8e8;--err-border:#f5b8b8;--err-text:#8b1a1a;
+  --warn-bg:#fef9e7;--warn-border:#f5d67a;--warn-text:#7a5500;
+  --shadow:0 1px 4px rgba(0,0,0,.10),0 1px 2px rgba(0,0,0,.06);
+  --shadow-sm:0 1px 2px rgba(0,0,0,.08)
 }
 *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
 html{font-size:16px;scroll-behavior:smooth}
 body{background:var(--bg);color:var(--text);font-family:var(--font);
   line-height:1.6;min-height:100vh;display:flex;flex-direction:column;
-  transition:background .3s,color .3s}
-a{color:var(--purple-light);text-decoration:none;transition:color .2s}
+  transition:background .25s,color .25s}
+a{color:var(--purple-light);text-decoration:none;transition:color .15s}
 a:hover{color:var(--purple);text-decoration:underline}
 strong{color:var(--text-muted);font-weight:700}
 code{font-family:var(--mono);font-size:.84em;background:var(--border);
   color:var(--text);padding:.1em .4em;border-radius:3px}
+
+/* ── Header ── */
 .site-header{background:var(--surface);border-bottom:1px solid var(--border);
-  padding:18px 40px;display:flex;align-items:center;gap:16px;flex-shrink:0;
-  transition:background .3s,border-color .3s}
-.header-wordmark{display:flex;align-items:center;gap:10px;text-decoration:none}
-.header-logo{height:26px;width:auto;display:block}
-.header-title{font-size:17px;font-weight:500;color:var(--text);margin-right:auto;transition:color .3s}
-.header-link{color:var(--text);font-size:14px;font-weight:500;padding:7px 14px;
-  border-radius:8px;border:1px solid transparent;transition:all .2s;text-decoration:none}
-.header-link:hover{background:var(--border);border-color:var(--border-hi);color:var(--text);text-decoration:none}
-.theme-toggle{background:transparent;border:1px solid var(--border);border-radius:8px;
-  padding:7px 12px;cursor:pointer;font-size:1.05rem;line-height:1;color:var(--text);
-  transition:all .2s;flex-shrink:0}
-.theme-toggle:hover{background:var(--border);border-color:var(--border-hi)}
-.site-main{flex:1;padding:48px 40px 80px;max-width:960px;width:100%;margin:0 auto}
+  padding:0 40px;height:56px;display:flex;align-items:center;gap:16px;
+  flex-shrink:0;transition:background .25s,border-color .25s;
+  box-shadow:var(--shadow-sm)}
+.header-wordmark{display:flex;align-items:center;gap:8px;text-decoration:none;
+  flex-shrink:0}
+.wordmark-text{font-size:18px;font-weight:900;color:var(--text);letter-spacing:-.02em;
+  transition:color .25s}
+.header-sep{color:var(--border-hi);font-weight:300;font-size:20px;user-select:none}
+.header-product{font-size:14px;font-weight:500;color:var(--text-muted);
+  transition:color .25s;white-space:nowrap}
+.header-spacer{flex:1}
+.header-link{color:var(--text-muted);font-size:13px;font-weight:500;padding:6px 12px;
+  border-radius:6px;border:1px solid transparent;transition:all .15s;text-decoration:none;
+  white-space:nowrap}
+.header-link:hover{background:var(--border);border-color:var(--border-hi);
+  color:var(--text);text-decoration:none}
+.theme-btn{background:var(--surface);border:1px solid var(--border);border-radius:8px;
+  padding:6px 10px;cursor:pointer;font-size:13px;font-weight:500;color:var(--text-muted);
+  display:flex;align-items:center;gap:6px;transition:all .15s;flex-shrink:0;
+  line-height:1;white-space:nowrap}
+.theme-btn:hover{background:var(--border);border-color:var(--border-hi);color:var(--text)}
+.theme-btn svg{width:14px;height:14px;flex-shrink:0}
+
+/* ── Layout ── */
+.site-main{flex:1;padding:48px 40px 80px;max-width:980px;width:100%;margin:0 auto}
 .site-footer{background:var(--surface);border-top:1px solid var(--border);
-  padding:22px 40px;text-align:center;color:var(--text-dim);font-size:14px;
-  flex-shrink:0;transition:background .3s,border-color .3s}
+  padding:20px 40px;text-align:center;color:var(--text-dim);font-size:13px;
+  flex-shrink:0;transition:background .25s,border-color .25s}
 .site-footer .heart{color:var(--accent)}
 .site-footer a{color:inherit}
 .site-footer a:hover{text-decoration:underline;color:var(--text)}
+
+/* ── Cards ── */
 .card{background:var(--surface);border:1px solid var(--border);border-radius:10px;
-  padding:28px 32px;margin-bottom:24px;transition:background .3s,border-color .3s}
-.card h2{font-size:19px;font-weight:700;color:var(--text);margin-bottom:8px}
-.section-intro{color:var(--text-muted);font-size:14px;margin-bottom:22px;font-weight:400}
-.page-title{font-size:40px;font-weight:900;line-height:1.2;margin-bottom:8px}
-.page-sub{color:var(--text-muted);font-size:15px;margin-bottom:40px;font-weight:400}
-h1{font-size:26px;font-weight:900;margin-bottom:6px}
-h2{font-size:16px;font-weight:700;color:var(--text-muted);
-  margin:28px 0 10px;padding-top:28px;border-top:1px solid var(--border)}
-h2:first-of-type{margin-top:0;padding-top:0;border-top:none}
-.breadcrumb{font-size:13px;color:var(--text-dim);margin-bottom:20px}
-.breadcrumb a{color:var(--purple-light)}
-.meta{color:var(--text-dim);font-size:13px;margin-bottom:24px}
+  padding:28px 32px;margin-bottom:20px;box-shadow:var(--shadow);
+  transition:background .25s,border-color .25s,box-shadow .25s}
+.card h2{font-size:18px;font-weight:700;color:var(--text);margin-bottom:6px}
+.section-intro{color:var(--text-muted);font-size:14px;margin-bottom:20px}
+
+/* ── Main page typography ── */
+.page-title{font-size:36px;font-weight:900;line-height:1.15;margin-bottom:6px;
+  letter-spacing:-.02em}
+.page-sub{color:var(--text-muted);font-size:15px;margin-bottom:36px}
+
+/* ── Detail page typography ── */
+h1{font-size:24px;font-weight:800;margin-bottom:4px;letter-spacing:-.01em}
+h2{font-size:13px;font-weight:700;color:var(--text-dim);letter-spacing:.07em;
+  text-transform:uppercase;margin:28px 0 10px;padding-bottom:6px;
+  border-bottom:1px solid var(--border)}
+.breadcrumb{font-size:13px;color:var(--text-dim);margin-bottom:18px}
+.breadcrumb a{color:var(--text-muted)}
+.breadcrumb a:hover{color:var(--purple-light)}
+.run-title-row{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:20px}
+.run-title-row h1{margin:0}
+
+/* ── Run info grid ── */
+.run-meta{display:grid;grid-template-columns:repeat(auto-fill,minmax(170px,1fr));
+  gap:8px;margin-bottom:4px}
+.meta-item{background:var(--bg);border:1px solid var(--border);border-radius:8px;
+  padding:10px 14px}
+.meta-key{font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.08em;
+  color:var(--text-dim);display:block;margin-bottom:3px}
+.meta-val{font-size:13px;color:var(--text);word-break:break-all;line-height:1.4}
+.meta-val a{color:var(--purple-light);font-size:12px}
+
+/* ── Metric stat boxes ── */
+.stats-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(130px,1fr));
+  gap:10px;margin-bottom:4px}
+.stat-box{background:var(--bg);border:1px solid var(--border);border-radius:8px;
+  padding:14px 16px}
+.stat-label{font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.07em;
+  color:var(--text-dim);margin-bottom:6px}
+.stat-val{font-size:20px;font-weight:700;font-family:var(--mono);color:var(--text);
+  line-height:1.2}
+.stat-sub{font-size:11px;color:var(--text-dim);margin-top:3px}
+.stat-box.stat-err .stat-val{color:var(--err-text)}
+.stat-box.stat-ok  .stat-val{color:var(--ok-text)}
+.stat-box.stat-warn .stat-val{color:var(--warn-text)}
+
+/* ── Log viewer ── */
+.log-wrap{max-height:360px;overflow-y:auto;border:1px solid var(--border);
+  border-radius:6px;background:var(--bg)}
+.log-wrap pre{border:none;border-radius:0;margin:0;max-height:none;font-size:11px;
+  line-height:1.5;padding:14px 16px}
+
+/* ── File download links ── */
+.file-links{display:flex;gap:8px;flex-wrap:wrap;margin-top:4px}
+.file-link{display:inline-flex;align-items:center;gap:5px;padding:8px 14px;
+  background:var(--surface);border:1px solid var(--border);border-radius:8px;
+  color:var(--text-muted);font-size:13px;font-weight:500;transition:all .15s;
+  text-decoration:none;box-shadow:var(--shadow-sm)}
+.file-link:hover{border-color:var(--purple);color:var(--purple-light);
+  text-decoration:none;background:rgba(96,70,255,.06)}
+.file-link.primary{background:var(--purple);border-color:var(--purple);
+  color:var(--purple-btn);box-shadow:none}
+.file-link.primary:hover{background:var(--purple-hover);border-color:var(--purple-hover);
+  color:var(--purple-btn)}
+
+/* ── Tables (generic + runs-table) ── */
 table{width:100%;border-collapse:collapse;font-size:13px}
-th{padding:9px 12px;border-bottom:2px solid var(--border);color:var(--text-dim);
-  font-weight:600;font-size:11px;letter-spacing:.06em;text-transform:uppercase;
+th{padding:8px 12px;border-bottom:2px solid var(--border);color:var(--text-dim);
+  font-weight:700;font-size:10px;letter-spacing:.07em;text-transform:uppercase;
   text-align:left;white-space:nowrap}
 td{padding:11px 12px;border-bottom:1px solid var(--border);vertical-align:top}
 tr:last-child td{border-bottom:none}
-tbody tr:hover td{background:rgba(255,255,255,.02)}
-.table-wrap{overflow-x:auto;margin-top:4px}
+tbody tr:hover td{background:rgba(128,107,255,.04)}
+.table-wrap{overflow-x:auto}
 .runs-table td{vertical-align:middle;padding:12px}
-.td-ts{font-family:var(--mono);font-size:12px;white-space:nowrap;color:var(--text-muted)}
+.td-ts{white-space:nowrap}
+.td-ts a{font-family:var(--mono);font-size:12px;color:var(--text-muted);font-weight:500}
+.td-ts a:hover{color:var(--purple-light);text-decoration:underline}
 .td-iters{font-size:12px;color:var(--text-muted)}
-.td-fail{font-size:13px;text-align:center}
-.td-files{display:flex;gap:8px;flex-wrap:wrap}
-.td-files a{font-size:12px;padding:2px 8px;border:1px solid var(--border);
-  border-radius:4px;color:var(--text-muted);white-space:nowrap;transition:all .15s}
+.td-fail{text-align:center}
+.td-files{display:flex;gap:6px;flex-wrap:wrap}
+.td-files a{font-size:11px;padding:2px 8px;border:1px solid var(--border);
+  border-radius:4px;color:var(--text-dim);white-space:nowrap;transition:all .12s}
 .td-files a:hover{border-color:var(--purple);color:var(--purple-light);
-  text-decoration:none;background:rgba(96,70,255,.08)}
+  text-decoration:none;background:rgba(96,70,255,.07)}
 .run-profile{font-size:12px}
 .no-runs{color:var(--text-dim);font-style:italic;padding:20px 0;font-size:14px}
-.badge{display:inline-block;padding:2px 8px;border-radius:4px;font-size:11px;font-weight:700;letter-spacing:.03em}
-.badge-ok  {background:var(--ok-bg);color:var(--ok-text)}
-.badge-err {background:var(--err-bg);color:var(--err-text)}
-.badge-warn{background:var(--warn-bg);color:var(--warn-text)}
+
+/* ── Badges ── */
+.badge{display:inline-block;padding:2px 9px;border-radius:20px;font-size:11px;
+  font-weight:700;letter-spacing:.04em}
+.badge-ok  {background:var(--ok-bg);color:var(--ok-text);border:1px solid var(--ok-border)}
+.badge-err {background:var(--err-bg);color:var(--err-text);border:1px solid var(--err-border)}
+.badge-warn{background:var(--warn-bg);color:var(--warn-text);border:1px solid var(--warn-border)}
 .run-ok,.ok{color:var(--ok-text)}
 .run-bad,.bad{color:var(--err-text);font-weight:600}
 .run-na,.muted{color:var(--text-dim)}
-pre{background:var(--bg);border:1px solid var(--border-hi);border-radius:6px;
+
+/* ── Preformatted ── */
+pre{background:var(--bg);border:1px solid var(--border);border-radius:6px;
   padding:14px 18px;font-family:var(--mono);font-size:12px;color:var(--text);
-  overflow-x:auto;white-space:pre-wrap;word-break:break-all;margin:6px 0}
-.cli-pre{padding:18px 20px;font-size:13px;white-space:pre;margin-top:14px;
-  background:var(--bg);border:1px solid var(--border-hi);border-radius:6px;
-  font-family:var(--mono);color:var(--text);overflow-x:auto}
+  overflow-x:auto;white-space:pre-wrap;word-break:break-all;margin:6px 0;
+  line-height:1.55}
+.cli-pre{padding:18px 20px;font-size:12px;white-space:pre;background:var(--bg);
+  border:1px solid var(--border);border-radius:6px;font-family:var(--mono);
+  color:var(--text);overflow-x:auto;line-height:1.6;margin-top:12px}
 details{margin:4px 0}
-summary{cursor:pointer;color:var(--text-muted);font-size:13px}
+summary{cursor:pointer;color:var(--text-muted);font-size:13px;user-select:none}
 summary:hover{color:var(--text)}
-.fail-row td:first-child{white-space:nowrap;font-size:12px;color:var(--text-dim)}
+
+/* ── Failure rows ── */
+.fail-row td:first-child{white-space:nowrap;font-size:11px;color:var(--text-dim)}
 .fail-what{font-size:13px}
 .fail-req{font-family:var(--mono);font-size:12px}
 .exception{color:var(--err-text);font-weight:600}
+
+/* ── Form ── */
 .form-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(140px,1fr));
-  gap:12px 16px;margin-bottom:22px}
-.form-group{display:flex;flex-direction:column;gap:5px}
+  gap:10px 14px;margin-bottom:20px}
+.form-group{display:flex;flex-direction:column;gap:4px}
 .form-group-wide{grid-column:1 / -1}
-label{font-size:12px;font-weight:600;color:var(--text-muted);letter-spacing:.03em;text-transform:uppercase}
+label{font-size:10px;font-weight:700;color:var(--text-dim);letter-spacing:.07em;
+  text-transform:uppercase}
 .label-hint{font-weight:400;text-transform:none;color:var(--text-dim)}
 .form-control{background:var(--bg);border:1px solid var(--border-hi);border-radius:6px;
-  color:var(--text);font-family:var(--mono);font-size:14px;padding:10px 13px;width:100%;
-  transition:border-color .2s,background .3s;appearance:none}
-.form-control:focus{outline:2px solid var(--purple);outline-offset:2px;border-color:var(--purple)}
+  color:var(--text);font-family:var(--mono);font-size:13px;padding:9px 12px;width:100%;
+  transition:border-color .15s,box-shadow .15s;appearance:none}
+.form-control:focus{outline:none;border-color:var(--purple);
+  box-shadow:0 0 0 3px rgba(96,70,255,.2)}
 .form-control::placeholder{color:var(--text-dim)}
-.btn-row{display:flex;gap:12px;flex-wrap:wrap}
-.btn-primary-alt{display:inline-block;padding:12px 26px;background:var(--purple);
-  color:var(--purple-btn);font-family:var(--font);font-size:14px;font-weight:700;
-  border:none;border-radius:48px;cursor:pointer;letter-spacing:.03em;transition:background .2s}
-.btn-primary-alt:hover{background:var(--purple-hover);color:var(--purple-btn);text-decoration:none}
-.btn-primary-alt:focus{outline:2px solid var(--purple);outline-offset:3px}
-.btn-secondary{display:inline-block;padding:12px 26px;background:transparent;
-  color:var(--text-muted);font-family:var(--font);font-size:14px;font-weight:600;
-  border:1px solid var(--border-hi);border-radius:48px;cursor:pointer;
-  letter-spacing:.03em;transition:all .2s}
-.btn-secondary:hover{background:var(--border);color:var(--text);border-color:var(--border-hi)}
-.banner{margin-top:20px;padding:16px 20px;border-radius:8px;font-size:14px}
-.banner strong{font-weight:700}
+
+/* ── Buttons ── */
+.btn-row{display:flex;gap:10px;flex-wrap:wrap;margin-top:4px}
+.btn-primary{display:inline-flex;align-items:center;padding:10px 22px;
+  background:var(--purple);color:var(--purple-btn);font-family:var(--font);
+  font-size:14px;font-weight:700;border:none;border-radius:6px;cursor:pointer;
+  letter-spacing:.01em;transition:background .15s,transform .1s;text-decoration:none}
+.btn-primary:hover{background:var(--purple-hover);color:var(--purple-btn);
+  text-decoration:none;transform:translateY(-1px)}
+.btn-primary:active{transform:none}
+.btn-primary:focus{outline:2px solid var(--purple);outline-offset:3px}
+.btn-ghost{display:inline-flex;align-items:center;padding:10px 22px;
+  background:transparent;color:var(--text-muted);font-family:var(--font);
+  font-size:14px;font-weight:600;border:1px solid var(--border-hi);border-radius:6px;
+  cursor:pointer;letter-spacing:.01em;transition:all .15s}
+.btn-ghost:hover{background:var(--border);color:var(--text);border-color:var(--border-hi)}
+
+/* ── Banners ── */
+.banner{margin-top:18px;padding:14px 18px;border-radius:8px;font-size:13px;
+  line-height:1.5}
 .banner-ok{background:var(--ok-bg);border:1px solid var(--ok-border);color:var(--ok-text)}
 .banner-ok strong,.banner-ok a{color:var(--ok-text)}
-.banner-ok code{background:rgba(255,255,255,.1);color:var(--ok-text)}
+.banner-ok code{background:rgba(255,255,255,.12);color:var(--ok-text)}
 .banner-err{background:var(--err-bg);border:1px solid var(--err-border);color:var(--err-text)}
 .banner-err strong{color:var(--err-text)}
-.banner-meta{font-size:12px;display:block;margin-top:4px;opacity:.9}
-.banner-hint{font-size:12px;display:block;margin-top:10px;opacity:.8}
+.banner-meta{font-size:12px;display:block;margin-top:4px;opacity:.85}
+.banner-hint{font-size:12px;display:block;margin-top:8px;opacity:.75}
 .banner-hint a{color:inherit;text-decoration:underline}
 .exit-code{font-size:.85em;opacity:.7}
-.result-pre{margin-top:10px;background:rgba(0,0,0,.25);border:none;border-radius:5px;
-  padding:10px 14px;font-family:var(--mono);font-size:12px;white-space:pre-wrap;
+.result-pre{margin-top:8px;background:rgba(0,0,0,.2);border:none;border-radius:5px;
+  padding:8px 12px;font-family:var(--mono);font-size:11px;white-space:pre-wrap;
   word-break:break-all;color:inherit;opacity:.9}
-.notice{background:var(--bg);border:1px solid var(--border-hi);border-radius:8px;
-  padding:16px 20px;font-size:13px;color:var(--text-muted);line-height:1.7;margin-top:14px}
+.notice{background:var(--bg);border:1px solid var(--border);border-radius:8px;
+  padding:14px 18px;font-size:13px;color:var(--text-muted);line-height:1.7;margin-top:12px}
 .notice code{font-size:.82em}
-@media(max-width:640px){
-  .site-header{padding:14px 20px;gap:10px}.header-title{font-size:14px}
-  .site-main{padding:28px 16px 60px}.page-title{font-size:26px}.card{padding:18px}
+
+@media(max-width:680px){
+  .site-header{padding:0 16px;height:52px}
+  .header-product{display:none}
+  .header-sep{display:none}
+  .site-main{padding:28px 16px 60px}
+  .page-title{font-size:26px}
+  .card{padding:18px 20px}
+  .run-meta{grid-template-columns:1fr 1fr}
+  .stats-grid{grid-template-columns:1fr 1fr}
 }
 CSS;
 
-// ── Shared page shell (for /k6-reports/* HTML responses) ─────────────────────
-$shell = function (string $title, string $body) use ($h, $CSS): void {
+// ── Shared page shell (reports sub-pages) ─────────────────────────────────────
+$shell = function (string $title, string $body, bool $backLink = true) use ($h, $CSS): void {
     header('Content-Type: text/html; charset=utf-8');
     $t = $h($title);
+    $back = $backLink ? '<a href="/" class="header-link">&#x2190; All runs</a>' : '';
     echo <<<HTML
     <!doctype html>
     <html lang="en" data-theme="dark">
     <head>
       <meta charset="utf-8">
       <meta name="viewport" content="width=device-width,initial-scale=1">
-      <title>{$t}</title>
+      <title>{$t} — k6</title>
       <link rel="preconnect" href="https://fonts.googleapis.com">
       <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
       <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;700;900&family=Space+Mono&display=swap" rel="stylesheet">
@@ -185,32 +288,49 @@ $shell = function (string $title, string $body) use ($h, $CSS): void {
     </head>
     <body>
     <header class="site-header">
-      <a href="/" class="header-wordmark" aria-label="k6 Load Testing">
-        <svg class="header-logo" viewBox="0 0 80 22" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
-          <text x="0" y="18" font-family="'Space Grotesk',sans-serif" font-size="20"
-                font-weight="900" fill="currentColor" style="fill:var(--text)">upsun</text>
-        </svg>
+      <a href="/" class="header-wordmark">
+        <span class="wordmark-text">upsun</span>
+        <span class="header-sep">/</span>
+        <span class="header-product">k6 Load Testing</span>
       </a>
-      <span class="header-title">k6 Load Testing</span>
-      <a href="/" class="header-link">&#x2190; All runs</a>
-      <button class="theme-toggle" id="theme-toggle" aria-label="Toggle theme"><span id="theme-icon">🌙</span></button>
+      <div class="header-spacer"></div>
+      {$back}
+      <button class="theme-btn" id="theme-btn" aria-label="Toggle colour scheme">
+        <svg id="theme-icon-sun" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.8" style="display:none"><circle cx="10" cy="10" r="4"/><line x1="10" y1="2" x2="10" y2="0.5"/><line x1="10" y1="18" x2="10" y2="19.5"/><line x1="2" y1="10" x2=".5" y2="10"/><line x1="18" y1="10" x2="19.5" y2="10"/><line x1="4.2" y1="4.2" x2="3.1" y2="3.1"/><line x1="15.8" y1="15.8" x2="16.9" y2="16.9"/><line x1="4.2" y1="15.8" x2="3.1" y2="16.9"/><line x1="15.8" y1="4.2" x2="16.9" y2="3.1"/></svg>
+        <svg id="theme-icon-moon" viewBox="0 0 20 20" fill="currentColor"><path d="M17.3 13.4A7 7 0 0 1 6.6 2.7a8 8 0 1 0 10.7 10.7z"/></svg>
+        <span id="theme-label">Dark</span>
+      </button>
     </header>
-    <main class="site-main">{$body}</main>
+    <main class="site-main">
+    {$body}
+    </main>
     <footer class="site-footer">
       made with <span class="heart">♥</span> by
       <a href="https://upsun.com" target="_blank" rel="noopener">Upsun</a>
     </footer>
     <script>
-    (function(){var html=document.documentElement,btn=document.getElementById('theme-toggle'),icon=document.getElementById('theme-icon');
-    function apply(t){html.setAttribute('data-theme',t);icon.textContent=t==='dark'?'🌙':'☀️';}
-    apply(localStorage.getItem('theme')||'dark');
-    btn.addEventListener('click',function(){var next=html.getAttribute('data-theme')==='dark'?'light':'dark';localStorage.setItem('theme',next);apply(next);});})();
+    (function(){
+      var html=document.documentElement,btn=document.getElementById('theme-btn'),
+          sun=document.getElementById('theme-icon-sun'),moon=document.getElementById('theme-icon-moon'),
+          lbl=document.getElementById('theme-label');
+      function apply(t){
+        html.setAttribute('data-theme',t);
+        var dark=t==='dark';
+        sun.style.display=dark?'none':'block';moon.style.display=dark?'block':'none';
+        lbl.textContent=dark?'Dark':'Light';
+      }
+      apply(localStorage.getItem('theme')||'dark');
+      btn.addEventListener('click',function(){
+        var next=html.getAttribute('data-theme')==='dark'?'light':'dark';
+        localStorage.setItem('theme',next);apply(next);
+      });
+    })();
     </script>
     </body></html>
     HTML;
 };
 
-// ── Helpers used by the runs table ────────────────────────────────────────────
+// ── Named functions ───────────────────────────────────────────────────────────
 
 function runTaskViaCli(string $cliBin, string $taskId, array $variables): array
 {
@@ -251,6 +371,7 @@ function runsTable(string $base, callable $h): string
     foreach ($runs as $run) {
         [$stamp, $profile] = array_pad(explode('-', $run, 2), 2, '');
         $ts   = preg_replace('/^(\d{4})(\d\d)(\d\d)T(\d\d)(\d\d)(\d\d)Z$/', '$1-$2-$3&nbsp;$4:$5:$6', $stamp);
+        $href = '/k6-reports/' . rawurlencode($run);
         $info = is_file("$base/$run/run-info.json")
             ? json_decode(file_get_contents("$base/$run/run-info.json"), true) : null;
 
@@ -263,9 +384,9 @@ function runsTable(string $base, callable $h): string
             };
             $interrupted = (int) ($info['iterations_interrupted'] ?? 0);
             $complete    = (int) ($info['iterations_complete'] ?? 0);
-            $iters = $h((string) $complete) . '&nbsp;done';
+            $iters = number_format($complete);
             if ($interrupted) {
-                $iters .= '&nbsp;<span class="run-bad">' . $h((string) $interrupted) . '&nbsp;interrupted</span>';
+                $iters .= '&ensp;<span class="bad">' . number_format($interrupted) . '&thinsp;int.</span>';
             }
         } else {
             $result = '<span class="run-na">—</span>';
@@ -277,23 +398,23 @@ function runsTable(string $base, callable $h): string
         $failCell  = $failCount === null
             ? '<span class="run-na">—</span>'
             : ($failCount > 0
-                ? '<a class="run-bad" href="/k6-reports/' . rawurlencode($run) . '/failures">' . $failCount . '</a>'
-                : '<span class="run-ok">0</span>');
+                ? '<a class="bad" href="' . $href . '/failures">' . number_format($failCount) . '</a>'
+                : '<span class="ok">0</span>');
 
         $links = [];
-        foreach (['report.html' => 'report', 'summary.json' => 'summary', 'k6.log' => 'log', 'run-info.json' => 'info'] as $f => $label) {
+        foreach (['report.html' => 'report', 'k6.log' => 'log'] as $f => $label) {
             if (is_file("$base/$run/$f")) {
-                $links[] = '<a href="/k6-reports/' . rawurlencode($run) . '/' . $f . '">' . $label . '</a>';
+                $links[] = '<a href="' . $href . '/' . $f . '">' . $label . '</a>';
             }
         }
 
         $rows .= '<tr>'
-            . '<td class="td-ts">' . $ts . '</td>'
+            . '<td class="td-ts"><a href="' . $href . '">' . $ts . '</a></td>'
             . '<td><code class="run-profile">' . $h($profile) . '</code></td>'
             . '<td>' . $result . '</td>'
             . '<td class="td-iters">' . $iters . '</td>'
             . '<td class="td-fail">' . $failCell . '</td>'
-            . '<td class="td-files">' . implode('&ensp;', $links) . '</td>'
+            . '<td class="td-files">' . implode('', $links) . '</td>'
             . '</tr>';
     }
 
@@ -314,11 +435,183 @@ if (str_starts_with($_uri, '/k6-reports')) {
 
     $inside = function (string $rel) use ($base): ?string {
         if ($base === false) return null;
-        $file = realpath($base . '/' . $rel);
-        return $file && str_starts_with($file, $base . '/') ? $file : null;
+        $resolved = realpath($base . '/' . $rel);
+        return $resolved && str_starts_with($resolved, $base . '/') ? $resolved : null;
     };
 
-    // Failures detail page
+    // ── Run detail page: /k6-reports/<run> ───────────────────────────────────
+    if (preg_match('#^([^/]+)$#', $path, $m)) {
+        $runName = rawurldecode($m[1]);
+        $dir     = $inside($runName);
+
+        if ($dir && is_dir($dir)) {
+            [$stamp, $profile] = array_pad(explode('-', $runName, 2), 2, '');
+            $ts = preg_replace(
+                '/^(\d{4})(\d\d)(\d\d)T(\d\d)(\d\d)(\d\d)Z$/',
+                '$1-$2-$3 $4:$5:$6 UTC', $stamp
+            );
+
+            // Load data files
+            $info    = is_file("$dir/run-info.json")
+                ? (json_decode(file_get_contents("$dir/run-info.json"), true) ?: null) : null;
+            $summary = is_file("$dir/summary.json")
+                ? (json_decode(file_get_contents("$dir/summary.json"), true) ?: null) : null;
+
+            // Badge
+            $code  = is_array($info) ? (int) ($info['exit_code'] ?? -1) : -1;
+            $badge = match (true) {
+                $code === 0  => '<span class="badge badge-ok">passed</span>',
+                $code === 99 => '<span class="badge badge-warn">thresholds</span>',
+                $code >  0   => '<span class="badge badge-err">failed (' . $code . ')</span>',
+                default      => '<span class="badge badge-warn">—</span>',
+            };
+
+            // ── Info grid ────────────────────────────────────────────────────
+            $infoItems = [];
+            if (is_array($info)) {
+                $fmt = fn($iso) => $h(str_replace(['T', 'Z'], [' ', ''], $iso) . ' UTC');
+                $fields = [
+                    'Profile'  => $h($info['profile'] ?? '—'),
+                    'URL'      => $info['url'] ?? '' ? '<a href="' . $h($info['url']) . '" target="_blank" rel="noopener">' . $h($info['url']) . '</a>' : '<span class="muted">—</span>',
+                    'VUs'      => $h($info['vus'] ?? '—'),
+                    'Duration' => $h($info['duration'] ?? '—'),
+                    'Started'  => $fmt($info['started'] ?? ''),
+                    'Finished' => $fmt($info['finished'] ?? ''),
+                    'Complete' => number_format((int) ($info['iterations_complete'] ?? 0)) . ' iters'
+                        . ((int) ($info['iterations_interrupted'] ?? 0) ? ' &ensp;<span class="bad">' . number_format((int) $info['iterations_interrupted']) . ' int.</span>' : ''),
+                    'Failures' => (int) ($info['failure_records'] ?? 0) > 0
+                        ? '<a class="bad" href="/k6-reports/' . rawurlencode($runName) . '/failures">'
+                          . number_format((int) $info['failure_records']) . ' records</a>'
+                        : '<span class="ok">0</span>',
+                ];
+                foreach ($fields as $k => $v) {
+                    $infoItems[] = '<div class="meta-item"><span class="meta-key">' . $k . '</span>'
+                        . '<span class="meta-val">' . $v . '</span></div>';
+                }
+            }
+            $infoHtml = $infoItems
+                ? '<div class="run-meta">' . implode('', $infoItems) . '</div>'
+                : '';
+
+            // ── Metrics ──────────────────────────────────────────────────────
+            $statsHtml  = '';
+            $threshHtml = '';
+            if (is_array($summary) && is_array($summary['metrics'] ?? null)) {
+                $metrics = $summary['metrics'];
+
+                $stat = function (string $label, string $val, string $sub = '', string $cls = '') {
+                    return '<div class="stat-box' . ($cls ? ' stat-' . $cls : '') . '">'
+                        . '<div class="stat-label">' . $label . '</div>'
+                        . '<div class="stat-val">' . $val . '</div>'
+                        . ($sub ? '<div class="stat-sub">' . $sub . '</div>' : '')
+                        . '</div>';
+                };
+
+                if ($d = $metrics['http_req_duration']['values'] ?? null) {
+                    $p95 = isset($d['p(95)']) ? round($d['p(95)']) : null;
+                    $cls = $p95 === null ? '' : ($p95 < 1000 ? 'ok' : ($p95 < 3000 ? 'warn' : 'err'));
+                    $statsHtml .= $stat('p(95) duration', $p95 !== null ? $p95 . 'ms' : '—', 'http req', $cls);
+                    $statsHtml .= $stat('avg duration', isset($d['avg']) ? round($d['avg']) . 'ms' : '—', 'http req');
+                    $statsHtml .= $stat('max duration', isset($d['max']) ? round($d['max']) . 'ms' : '—', 'http req');
+                }
+                if ($d = $metrics['http_req_failed']['values'] ?? null) {
+                    $rate = isset($d['rate']) ? round($d['rate'] * 100, 2) : null;
+                    $cls  = $rate === null ? '' : ($rate < 1 ? 'ok' : ($rate < 5 ? 'warn' : 'err'));
+                    $statsHtml .= $stat('error rate', $rate !== null ? $rate . '%' : '—', 'http_req_failed', $cls);
+                }
+                if ($d = $metrics['http_reqs']['values'] ?? null) {
+                    $statsHtml .= $stat('requests', number_format((int) ($d['count'] ?? 0)),
+                        round($d['rate'] ?? 0, 1) . ' req/s');
+                }
+                if ($d = $metrics['iterations']['values'] ?? null) {
+                    $statsHtml .= $stat('iterations', number_format((int) ($d['count'] ?? 0)),
+                        round($d['rate'] ?? 0, 2) . '/s');
+                }
+
+                // Thresholds
+                $threshRows = '';
+                foreach ($metrics as $mName => $metric) {
+                    if (empty($metric['thresholds'])) continue;
+                    foreach ($metric['thresholds'] as $expr => $result) {
+                        $ok = (bool) ($result['ok'] ?? false);
+                        $threshRows .= '<tr>'
+                            . '<td><code>' . $h($mName) . '</code></td>'
+                            . '<td><code>' . $h($expr) . '</code></td>'
+                            . '<td>' . ($ok
+                                ? '<span class="ok">&#x2713; ok</span>'
+                                : '<span class="bad">&#x2717; failed</span>')
+                            . '</td></tr>';
+                    }
+                }
+                if ($threshRows) {
+                    $threshHtml = '<h2>Thresholds</h2><table>'
+                        . '<thead><tr><th>Metric</th><th>Expression</th><th>Result</th></tr></thead>'
+                        . '<tbody>' . $threshRows . '</tbody></table>';
+                }
+            }
+            $metricsSection = $statsHtml
+                ? '<h2>Metrics</h2><div class="stats-grid">' . $statsHtml . '</div>' . $threshHtml
+                : '';
+
+            // ── Log ──────────────────────────────────────────────────────────
+            $logSection = '';
+            if (is_file("$dir/k6.log")) {
+                $all      = file("$dir/k6.log", FILE_IGNORE_NEW_LINES | FILE_SKIP_EMPTY_LINES);
+                $total    = count($all);
+                $limit    = 300;
+                $truncated = $total > $limit;
+                $lines    = $truncated ? array_slice($all, -$limit) : $all;
+                $truncNote = $truncated
+                    ? '<p class="muted" style="font-size:11px;margin-bottom:4px">'
+                      . 'Showing last ' . $limit . ' of ' . $total . ' lines &mdash; '
+                      . '<a href="/k6-reports/' . rawurlencode($runName) . '/k6.log">download full log</a></p>'
+                    : '';
+                $logSection = '<h2>Log</h2>' . $truncNote
+                    . '<div class="log-wrap"><pre>' . $h(implode("\n", $lines)) . '</pre></div>';
+            }
+
+            // ── Files ─────────────────────────────────────────────────────────
+            $fileLinks = [];
+            $fileMap = [
+                'report.html'    => ['k6 HTML Report', 'primary'],
+                'failures.jsonl' => ['Failures JSONL',  ''],
+                'summary.json'   => ['Summary JSON',    ''],
+                'k6.log'         => ['Full Log',        ''],
+                'run-info.json'  => ['Run Info',        ''],
+                'console.log'    => ['Console Log',     ''],
+            ];
+            if (is_file("$dir/failures.jsonl") && filesize("$dir/failures.jsonl") > 0) {
+                $failHref = '/k6-reports/' . rawurlencode($runName) . '/failures';
+                $fileLinks[] = '<a href="' . $failHref . '" class="file-link">&#x26A0; View Failures</a>';
+            }
+            foreach ($fileMap as $f => [$label, $cls]) {
+                if (!is_file("$dir/$f")) continue;
+                $href = '/k6-reports/' . rawurlencode($runName) . '/' . $f;
+                $fileLinks[] = '<a href="' . $href . '" class="file-link ' . $cls . '">' . $label . '</a>';
+            }
+            $filesSection = $fileLinks
+                ? '<h2>Files</h2><div class="file-links">' . implode('', $fileLinks) . '</div>'
+                : '';
+
+            // ── Assemble body ─────────────────────────────────────────────────
+            $body = '<div class="breadcrumb"><a href="/">All runs</a> / ' . $h($runName) . '</div>'
+                . '<div class="run-title-row">'
+                . '<h1>' . $h($profile ?: $runName) . '</h1>'
+                . $badge
+                . '<span class="muted" style="font-size:13px;margin-left:4px">' . $h($ts) . '</span>'
+                . '</div>'
+                . $infoHtml
+                . $metricsSection
+                . $logSection
+                . $filesSection;
+
+            $shell('Run — ' . $runName, $body);
+            exit;
+        }
+        // Not a valid run directory — fall through to file serving (will 404)
+    }
+
+    // ── Failures detail page: /k6-reports/<run>/failures ─────────────────────
     if (preg_match('#^([^/]+)/failures$#', $path, $m)) {
         $runName = rawurldecode($m[1]);
         $dir     = $inside($runName);
@@ -326,7 +619,7 @@ if (str_starts_with($_uri, '/k6-reports')) {
 
         if (!$dir || !is_file($file)) {
             http_response_code(404);
-            $shell('Not found — k6', '<p class="muted">Run not found.</p>');
+            $shell('Not found', '<p class="muted">Run not found.</p>');
             exit;
         }
 
@@ -342,7 +635,8 @@ if (str_starts_with($_uri, '/k6-reports')) {
         };
 
         $rows   = $readJsonLines($file);
-        $pretty = fn($v) => $h(is_string($v) ? $v : json_encode($v, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE));
+        $pretty = fn($v) => $h(is_string($v) ? $v
+            : json_encode($v, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE));
 
         $byFlow = [];
         foreach ($rows as $r) {
@@ -354,10 +648,12 @@ if (str_starts_with($_uri, '/k6-reports')) {
         $total     = count($rows);
         $truncated = $total >= 1000 ? ' <span class="muted">(first 1000 shown)</span>' : '';
         $rawLink   = '/k6-reports/' . rawurlencode($runName) . '/failures.jsonl';
+        $backLink  = '/k6-reports/' . rawurlencode($runName);
 
         $summaryRows = '';
         foreach ($byFlow as $k => $n) {
-            $summaryRows .= '<tr><td>' . $h($k) . '</td><td style="text-align:right">' . $n . '</td></tr>';
+            $summaryRows .= '<tr><td>' . $h($k) . '</td>'
+                . '<td style="text-align:right;font-family:var(--mono)">' . $n . '</td></tr>';
         }
 
         $detailRows = '';
@@ -399,14 +695,16 @@ if (str_starts_with($_uri, '/k6-reports')) {
         }
 
         $summaryTable = $summaryRows
-            ? '<h2>By flow and request</h2>'
-              . '<table><thead><tr><th>Flow · request</th><th style="text-align:right">Count</th></tr></thead>'
+            ? '<h2>By flow and request</h2><table>'
+              . '<thead><tr><th>Flow · request</th><th style="text-align:right">Count</th></tr></thead>'
               . '<tbody>' . $summaryRows . '</tbody></table>'
             : '';
 
-        $body = '<div class="breadcrumb"><a href="/">All runs</a> / ' . $h($runName) . ' / failures</div>'
+        $body = '<div class="breadcrumb"><a href="/">All runs</a> / '
+            . '<a href="' . $backLink . '">' . $h($runName) . '</a> / failures</div>'
             . '<h1>Failures</h1>'
-            . '<p class="meta">' . $total . ' records' . $truncated
+            . '<p class="muted" style="font-size:13px;margin:6px 0 20px">'
+            . $total . ' records' . $truncated
             . ' &ensp;·&ensp; <a href="' . $rawLink . '">raw .jsonl</a></p>'
             . $summaryTable
             . '<h2>Records</h2>'
@@ -418,7 +716,7 @@ if (str_starts_with($_uri, '/k6-reports')) {
         exit;
     }
 
-    // File serving
+    // ── File serving: /k6-reports/<run>/<file> ───────────────────────────────
     $fileTypes = [
         'html'  => 'text/html; charset=utf-8',
         'json'  => 'application/json',
@@ -430,7 +728,7 @@ if (str_starts_with($_uri, '/k6-reports')) {
 
     if (!$file || !is_file($file) || !isset($fileTypes[$ext])) {
         http_response_code(404);
-        $shell('Not found — k6', '<p class="muted">File not found.</p>');
+        $shell('Not found', '<p class="muted">File not found.</p>');
         exit;
     }
 
@@ -462,7 +760,7 @@ if ($canTrigger
     && ($_POST['action'] ?? '') === 'run_task'
 ) {
     if (!hash_equals($_SESSION['csrf'] ?? '', $_POST['csrf'] ?? '')) {
-        $triggerResult = ['ok' => false, 'output' => 'Invalid security token — please reload and try again.', 'exitCode' => -1];
+        $triggerResult = ['ok' => false, 'output' => 'Invalid security token — please reload.', 'exitCode' => -1];
     } else {
         $allowedProfiles = ['combined', 'graphql', 'storefront', 'admin', 'crawler', 'smoke', 'cleanup'];
         $profile = $_POST['profile'] ?? 'combined';
@@ -504,16 +802,16 @@ if ($triggerResult !== null) {
             fn($k, $v) => '<code>' . $h($k) . '=' . $h($v) . '</code>',
             array_keys($triggerResult['vars'] ?? []), $triggerResult['vars'] ?? []
         ));
-        $cliOut  = $triggerResult['output'] !== ''
+        $cliOut = $triggerResult['output'] !== ''
             ? '<pre class="result-pre">' . $h($triggerResult['output']) . '</pre>' : '';
         $bannerHtml = '<div class="banner banner-ok">'
             . '<strong>Task queued</strong> — profile: <code>' . $profile . '</code><br>'
             . '<span class="banner-meta">' . $varList . '</span>'
             . $cliOut
-            . '<span class="banner-hint">Follow in the '
+            . '<span class="banner-hint">Follow progress in the '
             . '<a href="https://console.upsun.com/" target="_blank" rel="noopener">Upsun console</a>'
-            . ' or <code>upsun activity:log</code>.'
-            . ' Results appear in the runs table below once finished.</span></div>';
+            . ' or via <code>upsun activity:log</code>. '
+            . 'Results appear in the table below once finished.</span></div>';
     } else {
         $out  = $h($triggerResult['output'] ?? 'Unknown error');
         $exit = isset($triggerResult['exitCode']) && $triggerResult['exitCode'] >= 0
@@ -532,7 +830,7 @@ if ($canTrigger) {
     $triggerSection = <<<HTML
     <section class="card">
       <h2>Run a load test{$envLabel}</h2>
-      <p class="section-intro">Triggers the <code>loadtesting-k6</code> task in its own container — the web UI stays responsive.</p>
+      <p class="section-intro">Triggers the <code>loadtesting-k6</code> task in its own isolated container — the web UI stays responsive while it runs.</p>
       <form method="post" action="/" id="run-form">
         <input type="hidden" name="action" value="run_task">
         <input type="hidden" name="csrf"   value="{$csrf}">
@@ -559,8 +857,8 @@ if ($canTrigger) {
           </div>
         </div>
         <div class="btn-row">
-          <button type="submit" class="btn-primary-alt">Start task</button>
-          <button type="button" class="btn-secondary" onclick="runCleanup()">Run cleanup</button>
+          <button type="submit" class="btn-primary">Start task</button>
+          <button type="button" class="btn-ghost" onclick="runCleanup()">Run cleanup</button>
         </div>
       </form>
       {$bannerHtml}
@@ -571,7 +869,11 @@ if ($canTrigger) {
         document.getElementById('fg-admin-vus').style.display=(noLoad.includes(p)||noAdmin.includes(p))?'none':'';
         document.getElementById('fg-duration').style.display=(noLoad.includes(p)||noDur.includes(p))?'none':'';
       }
-      function runCleanup(){document.getElementById('f-profile').value='cleanup';toggleFields('cleanup');document.getElementById('run-form').submit();}
+      function runCleanup(){
+        document.getElementById('f-profile').value='cleanup';
+        toggleFields('cleanup');
+        document.getElementById('run-form').submit();
+      }
       toggleFields(document.getElementById('f-profile').value);
       </script>
     </section>
@@ -617,47 +919,48 @@ $runsHtml = runsTable($reportsBase, $h);
 
 <header class="site-header">
   <a href="/" class="header-wordmark" aria-label="k6 Load Testing">
-    <svg class="header-logo" viewBox="0 0 80 22" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
-      <text x="0" y="18" font-family="'Space Grotesk',sans-serif" font-size="20"
-            font-weight="900" fill="currentColor" style="fill:var(--text)">upsun</text>
-    </svg>
+    <span class="wordmark-text">upsun</span>
+    <span class="header-sep">/</span>
+    <span class="header-product">k6 Load Testing</span>
   </a>
-  <span class="header-title">k6 Load Testing</span>
-  <button class="theme-toggle" id="theme-toggle" aria-label="Toggle theme">
-    <span id="theme-icon">🌙</span>
+  <div class="header-spacer"></div>
+  <button class="theme-btn" id="theme-btn" aria-label="Toggle colour scheme">
+    <svg id="theme-icon-sun" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.8" style="width:14px;height:14px;display:none"><circle cx="10" cy="10" r="4"/><line x1="10" y1="2" x2="10" y2="0.5"/><line x1="10" y1="18" x2="10" y2="19.5"/><line x1="2" y1="10" x2=".5" y2="10"/><line x1="18" y1="10" x2="19.5" y2="10"/><line x1="4.2" y1="4.2" x2="3.1" y2="3.1"/><line x1="15.8" y1="15.8" x2="16.9" y2="16.9"/><line x1="4.2" y1="15.8" x2="3.1" y2="16.9"/><line x1="15.8" y1="4.2" x2="16.9" y2="3.1"/></svg>
+    <svg id="theme-icon-moon" viewBox="0 0 20 20" fill="currentColor" style="width:14px;height:14px"><path d="M17.3 13.4A7 7 0 0 1 6.6 2.7a8 8 0 1 0 10.7 10.7z"/></svg>
+    <span id="theme-label">Dark</span>
   </button>
 </header>
 
 <main class="site-main">
 
   <h1 class="page-title">k6 Load Testing</h1>
-  <p class="page-sub">Magento Performance Toolkit benchmark — runs as an on-demand Upsun task from its own container.</p>
+  <p class="page-sub">Magento Performance Toolkit benchmark — runs as an on-demand Upsun task in its own isolated container.</p>
 
   <?= $triggerSection ?>
 
   <section class="card">
     <h2>CLI commands</h2>
-    <p class="section-intro">Run tasks directly — pass <code>--wait</code> to block until done.</p>
-    <pre class="cli-pre"># Smoke test
+    <p class="section-intro">Run tasks directly from your terminal — pass <code>--wait</code> to block until done.</p>
+    <pre class="cli-pre"># Smoke test (one VU, every flow once)
 upsun task:run loadtesting-k6 --variable env:PROFILE=smoke --wait
 
-# Combined load (25 VUs, 3 min default)
+# Combined load test (25 VUs, 3 min)
 upsun task:run loadtesting-k6 --wait
 
-# Custom run
+# Custom storefront run
 upsun task:run loadtesting-k6 \
   --variable env:PROFILE=storefront \
   --variable env:VUS=30 \
   --variable env:DURATION=15m \
   --wait
 
-# Cleanup
+# Cleanup k6-created data
 upsun task:run loadtesting-k6 --variable env:PROFILE=cleanup --wait</pre>
   </section>
 
   <section class="card">
     <h2>Runs</h2>
-    <p class="section-intro">Each run produces an HTML report, JSON metrics, a failure log and a console log. Reload after a task finishes to see new results.</p>
+    <p class="section-intro">Click a timestamp to view the full report — metrics, thresholds, log, and file downloads. Reload after a task finishes to see new results.</p>
     <?= $runsHtml ?>
   </section>
 
@@ -670,10 +973,20 @@ upsun task:run loadtesting-k6 --variable env:PROFILE=cleanup --wait</pre>
 
 <script>
 (function(){
-  var html=document.documentElement,btn=document.getElementById('theme-toggle'),icon=document.getElementById('theme-icon');
-  function apply(t){html.setAttribute('data-theme',t);icon.textContent=t==='dark'?'🌙':'☀️';}
+  var html=document.documentElement,btn=document.getElementById('theme-btn'),
+      sun=document.getElementById('theme-icon-sun'),moon=document.getElementById('theme-icon-moon'),
+      lbl=document.getElementById('theme-label');
+  function apply(t){
+    html.setAttribute('data-theme',t);
+    var dark=t==='dark';
+    sun.style.display=dark?'none':'block';moon.style.display=dark?'block':'none';
+    lbl.textContent=dark?'Dark':'Light';
+  }
   apply(localStorage.getItem('theme')||'dark');
-  btn.addEventListener('click',function(){var next=html.getAttribute('data-theme')==='dark'?'light':'dark';localStorage.setItem('theme',next);apply(next);});
+  btn.addEventListener('click',function(){
+    var next=html.getAttribute('data-theme')==='dark'?'light':'dark';
+    localStorage.setItem('theme',next);apply(next);
+  });
 })();
 </script>
 

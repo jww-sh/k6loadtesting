@@ -44,7 +44,7 @@ $esc = fn($s) => htmlspecialchars((string) $s, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF
 function runTaskViaCli(string $cliBin, string $taskId, array $variables): array
 {
     // Build argv array — no shell involved, so values are passed as-is.
-    $cmd = [$cliBin, 'task:run', $taskId, '--yes', '--no-wait'];
+    $cmd = [$cliBin, 'task:run', $taskId, '--yes'];
     foreach ($variables as $key => $value) {
         $cmd[] = '--variable';
         $cmd[] = "$key=$value";

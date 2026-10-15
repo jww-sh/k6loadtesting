@@ -29,6 +29,16 @@ applications:
     build:
       flavor: none
 
+    hooks:
+      build: |
+        set -e
+        # Install the Upsun CLI so the web UI can trigger the task via shell.
+        # The binary lands in bin/upsun (relative to the app root = /app/bin/upsun at runtime).
+        echo "Installing Upsun CLI..."
+        mkdir -p bin
+        INSTALL_DIR="$PWD/bin" curl -fsSL https://raw.githubusercontent.com/upsun/cli/main/installer.sh | bash
+        bin/upsun --version
+
     mounts:
       # Shared with the task; index.php reads PLATFORM_APP_DIR + '/var/k6-reports'
       'var/k6-reports':

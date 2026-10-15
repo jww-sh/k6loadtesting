@@ -30,78 +30,52 @@ $skipNames = ['k6', 'node_modules', '.git'];   // skip binary and tooling dirs
 $h   = fn($s) => htmlspecialchars((string) $s, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
 $esc = fn($s) => htmlspecialchars((string) $s, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
 
-// ── Upsun API helpers ─────────────────────────────────────────────────────────
+// ── Upsun CLI helper ──────────────────────────────────────────────────────────
 
 /**
- * Exchange a UPSUN_CLI_TOKEN for a short-lived OAuth2 bearer token.
- * @throws RuntimeException on network or auth failure
+ * Run the loadtesting-k6 task by shelling out to the Upsun CLI binary.
+ *
+ * The CLI reads UPSUN_CLI_TOKEN from the environment for auth; project and
+ * environment are auto-detected from PLATFORM_PROJECT / PLATFORM_ENVIRONMENT.
+ * proc_open() with an array avoids shell injection — no escaping needed.
+ *
+ * Returns ['ok' => bool, 'output' => string, 'exitCode' => int].
  */
-function upsunBearerToken(string $apiToken): string
+function runTaskViaCli(string $cliBin, string $taskId, array $variables): array
 {
-    $ch = curl_init('https://auth.upsun.com/oauth2/token');
-    curl_setopt_array($ch, [
-        CURLOPT_POST           => true,
-        CURLOPT_POSTFIELDS     => http_build_query([
-            'grant_type' => 'api_token',
-            'api_token'  => $apiToken,
-        ]),
-        CURLOPT_RETURNTRANSFER => true,
-        CURLOPT_TIMEOUT        => 10,
-        CURLOPT_USERPWD        => 'platform-api-user:',   // required by Upsun OAuth2 server
-        CURLOPT_HTTPHEADER     => ['Content-Type: application/x-www-form-urlencoded'],
-    ]);
-    $body   = curl_exec($ch);
-    $status = curl_getinfo($ch, CURLINFO_HTTP_CODE);
-    $err    = curl_error($ch);
-    curl_close($ch);
-
-    if ($err !== '') {
-        throw new RuntimeException("Auth request failed: $err");
+    // Build argv array — no shell involved, so values are passed as-is.
+    $cmd = [$cliBin, 'task:run', $taskId, '--yes', '--no-wait'];
+    foreach ($variables as $key => $value) {
+        $cmd[] = '--variable';
+        $cmd[] = "$key=$value";
     }
-    $data = json_decode((string) $body, true);
-    if ($status !== 200 || empty($data['access_token'])) {
-        $msg = $data['error_description'] ?? $data['error'] ?? "HTTP $status";
-        throw new RuntimeException("Could not obtain bearer token: $msg");
-    }
-    return $data['access_token'];
-}
 
-/**
- * POST /projects/{project}/environments/{env}/tasks/{task}/run
- * Returns ['httpStatus' => int, 'body' => array].
- * @throws RuntimeException on network failure
- */
-function upsunRunTask(string $bearer, string $project, string $env, string $taskId, array $variables): array
-{
-    $url = "https://api.upsun.com/projects/$project/environments/$env/tasks/$taskId/run";
-    $ch  = curl_init($url);
-    curl_setopt_array($ch, [
-        CURLOPT_POST           => true,
-        CURLOPT_POSTFIELDS     => json_encode(['variables' => $variables], JSON_THROW_ON_ERROR),
-        CURLOPT_RETURNTRANSFER => true,
-        CURLOPT_TIMEOUT        => 15,
-        CURLOPT_HTTPHEADER     => [
-            'Authorization: Bearer ' . $bearer,
-            'Content-Type: application/json',
-        ],
-    ]);
-    $body   = curl_exec($ch);
-    $status = curl_getinfo($ch, CURLINFO_HTTP_CODE);
-    $err    = curl_error($ch);
-    curl_close($ch);
-
-    if ($err !== '') {
-        throw new RuntimeException("Task API request failed: $err");
+    $desc = [
+        0 => ['pipe', 'r'],  // stdin  (unused)
+        1 => ['pipe', 'w'],  // stdout
+        2 => ['pipe', 'w'],  // stderr
+    ];
+    $proc = proc_open($cmd, $desc, $pipes);
+    if (!is_resource($proc)) {
+        return ['ok' => false, 'output' => 'Could not start the Upsun CLI process.', 'exitCode' => -1];
     }
-    return ['httpStatus' => $status, 'body' => json_decode((string) $body, true) ?? []];
+    fclose($pipes[0]);
+    $stdout = stream_get_contents($pipes[1]);
+    $stderr = stream_get_contents($pipes[2]);
+    fclose($pipes[1]);
+    fclose($pipes[2]);
+    $exit   = proc_close($proc);
+    $output = trim($stdout . ($stderr !== '' ? "\n$stderr" : ''));
+    return ['ok' => $exit === 0, 'output' => $output, 'exitCode' => $exit];
 }
 
 // ── Task trigger: detect capability ──────────────────────────────────────────
 
 $apiToken      = (string) (getenv('UPSUN_CLI_TOKEN') ?: '');
-$projectId     = (string) (getenv('PLATFORM_PROJECT') ?: '');
 $environmentId = (string) (getenv('PLATFORM_ENVIRONMENT') ?: '');
-$canTrigger    = $apiToken !== '' && $projectId !== '' && $environmentId !== '';
+// CLI binary is installed to bin/upsun relative to the app root by the build hook.
+$cliBin        = rtrim((string) (getenv('PLATFORM_APP_DIR') ?: ''), '/') . '/bin/upsun';
+$canTrigger    = $apiToken !== '' && is_executable($cliBin);
 
 // Ensure CSRF token exists
 if (empty($_SESSION['csrf'])) {
@@ -155,20 +129,14 @@ if ($canTrigger
                 $vars['env:URL'] = rtrim($urlOverride, '/');
             }
 
-            try {
-                $bearer = upsunBearerToken($apiToken);
-                $result = upsunRunTask($bearer, $projectId, $environmentId, 'loadtesting-k6', $vars);
-                $ok     = $result['httpStatus'] === 202;
-                $triggerResult = [
-                    'ok'      => $ok,
-                    'status'  => $result['httpStatus'],
-                    'body'    => $result['body'],
-                    'profile' => $profile,
-                    'vars'    => $vars,
-                ];
-            } catch (RuntimeException $e) {
-                $triggerResult = ['ok' => false, 'message' => $e->getMessage()];
-            }
+            $result = runTaskViaCli($cliBin, 'loadtesting-k6', $vars);
+            $triggerResult = [
+                'ok'      => $result['ok'],
+                'output'  => $result['output'],
+                'exitCode'=> $result['exitCode'],
+                'profile' => $profile,
+                'vars'    => $vars,
+            ];
         }
     }
     // Rotate CSRF after use
@@ -421,19 +389,20 @@ if ($triggerResult !== null) {
             fn($k, $v) => $h($k) . '=<strong>' . $h($v) . '</strong>',
             array_keys($vars), $vars
         ));
+        $cliOut  = $triggerResult['output'] !== '' ? '<pre>' . $h($triggerResult['output']) . '</pre>' : '';
         $resultHtml = <<<HTML
         <div class="banner banner-ok">
-          &#x2705; Task <strong>loadtesting-k6</strong> started (profile: <strong>{$profile}</strong>).
+          &#x2705; Task <strong>loadtesting-k6</strong> queued (profile: <strong>{$profile}</strong>).
           <br><small>{$varList}</small>
-          <br><small>Follow progress in the <a href="https://console.upsun.com/" target="_blank" rel="noopener">Upsun console</a>
+          {$cliOut}
+          <small>Follow progress in the <a href="https://console.upsun.com/" target="_blank" rel="noopener">Upsun console</a>
           or with <code>upsun activity:log</code>. Results appear in <a href="/k6-reports/">Reports</a> once done.</small>
         </div>
         HTML;
     } else {
-        $msg = isset($triggerResult['message'])
-            ? $h($triggerResult['message'])
-            : ('HTTP ' . ($triggerResult['status'] ?? '?') . ': ' . $h(json_encode($triggerResult['body'] ?? [])));
-        $resultHtml = '<div class="banner banner-err">&#x274C; Failed to start task: ' . $msg . '</div>';
+        $output = $h($triggerResult['output'] ?? ($triggerResult['message'] ?? 'Unknown error'));
+        $exit   = isset($triggerResult['exitCode']) ? ' (exit ' . (int) $triggerResult['exitCode'] . ')' : '';
+        $resultHtml = '<div class="banner banner-err">&#x274C; Failed to start task' . $exit . ':<pre>' . $output . '</pre></div>';
     }
 }
 
@@ -513,19 +482,26 @@ if ($canTrigger) {
 
 } else {
     // Explain how to enable the trigger
+    $cliMissing = !is_executable($cliBin);
+    $tokenMissing = $apiToken === '';
+    $why = match(true) {
+        $cliMissing && $tokenMissing => 'Upsun CLI not found and <code>UPSUN_CLI_TOKEN</code> is not set',
+        $cliMissing                  => 'Upsun CLI not found at <code>' . $h($cliBin) . '</code> — redeploy to install it',
+        $tokenMissing                => '<code>UPSUN_CLI_TOKEN</code> is not set',
+        default                      => 'Unknown',
+    };
     $triggerHtml = <<<HTML
     <div class="card">
       <h2>&#x25B6;&#xFE0F; Run a load test</h2>
-      <p class="muted" style="margin:0">
-        Task triggering is disabled — <code>UPSUN_CLI_TOKEN</code> is not set.
-      </p>
+      <p class="muted" style="margin:0">Task triggering is disabled — {$why}.</p>
       <br>
       <div class="notice">
         Create an API token in the
         <a href="https://console.upsun.com/" target="_blank" rel="noopener">Upsun console</a>
-        (Profile → API Tokens), then add it as a project variable:<br><br>
-        <code>upsun variable:create -l project --prefix env: --name UPSUN_CLI_TOKEN \\<br>
-        &nbsp;&nbsp;--value "&lt;token&gt;" --sensitive true --visible-build false</code>
+        (Profile &rarr; API Tokens), then add it as a project variable:<br><br>
+        <code>upsun variable:create -l project --prefix env: --name UPSUN_CLI_TOKEN \<br>
+        &nbsp;&nbsp;--value "&lt;token&gt;" --sensitive true --visible-build false</code><br><br>
+        Then redeploy so the build hook installs the CLI.
       </div>
     </div>
     HTML;

@@ -1,14 +1,18 @@
-// Magento benchmark (k6 port of the Performance Toolkit benchmark.jmx).
+// k6 load testing entry point.
 //
-// PROFILE selects what runs:
+// General profiles (any site):
+//   http       configurable single-endpoint HTTP benchmark (GET/POST/PUT/…)
+//   crawler    random-walk link crawler
+//
+// Magento profiles (Magento / Adobe Commerce):
 //   combined   storefront mix (Luma pages) + admin mix          (default)
 //   graphql    storefront mix via GraphQL + admin mix
 //   storefront storefront mix only
-//   admin      admin mix only
-//   crawler    random-walk crawler (the original magento.js)
+//   admin      admin panel mix only
 //   smoke      every flow once with 1 VU: functional check
 //   cleanup    cancel/remove k6-created data
-// See README.md for all variables.
+//
+// See README.md for all environment variables.
 import http from 'k6/http';
 import { generateReport } from './lib/report.js';
 import { cfg, mix, hasAdmin } from './lib/config.js';
@@ -23,6 +27,7 @@ import { crawl } from './scenarios/crawler.js';
 import { cleanup } from './scenarios/cleanup.js';
 import { varnishChecks } from './scenarios/varnish.js';
 import { runIteration } from './lib/failures.js';
+import { httpLoad } from './scenarios/http.js';
 
 const WEB_FLOWS = {
   browse: web.browse,
@@ -83,19 +88,23 @@ const varnishScenario = { varnish: { executor: 'per-vu-iterations', exec: 'varni
 function scenarios() {
   const withAdmin = hasAdmin() && cfg.adminVus > 0;
   switch (cfg.profile) {
+    // ── General profiles ──────────────────────────────────────────────────
+    case 'http':
+      return { http: storefrontScenario('httpLoad') };
+    case 'crawler':
+      return { crawler: storefrontScenario('crawler') };
+    // ── Magento profiles ──────────────────────────────────────────────────
     case 'graphql':
       return Object.assign({ storefront: storefrontScenario('graphqlMix') }, varnishScenario, withAdmin ? { admin: adminScenario() } : {});
     case 'storefront':
       return Object.assign({ storefront: storefrontScenario('storefrontMix') }, varnishScenario);
     case 'admin':
       return { admin: adminScenario() };
-    case 'crawler':
-      return { crawler: storefrontScenario('crawler') };
     case 'smoke':
       return { smoke: once('smoke') };
     case 'cleanup':
       return { cleanup: once('cleanupRun') };
-    default:
+    default: // combined
       return Object.assign(
         {
           storefront: storefrontScenario('storefrontMix'),
@@ -108,10 +117,17 @@ function scenarios() {
   }
 }
 
-const quiet = ['cleanup'].includes(cfg.profile);
+const isGeneral        = ['http', 'crawler'].includes(cfg.profile);
+const quiet            = cfg.profile === 'cleanup';
 const runsVarnishChecks =
   ['combined', 'graphql', 'storefront'].includes(cfg.profile) ||
   (cfg.profile === 'smoke' && cfg.smokeGroups.includes('varnish'));
+
+const magentoThresholds = {
+  magento_errors:        ['rate<0.05'],
+  magento_page_duration: ['p(95)<30000'],
+  ...(runsVarnishChecks ? { 'checks{suite:varnish}': ['rate==1'] } : {}),
+};
 
 export const options = {
   scenarios: scenarios(),
@@ -123,10 +139,7 @@ export const options = {
     ? {}
     : {
         http_req_failed: ['rate<0.05'],
-        magento_errors: ['rate<0.05'],
-        magento_page_duration: ['p(95)<30000'],
-        // every cache behaviour check must pass, however many other requests the run makes
-        ...(runsVarnishChecks ? { 'checks{suite:varnish}': ['rate==1'] } : {}),
+        ...(isGeneral ? {} : magentoThresholds),
       },
 };
 
@@ -186,6 +199,10 @@ export function varnish(data) {
 export function cleanupRun() {
   cleanup();
 }
+
+// ── General profiles ─────────────────────────────────────────────────────────
+
+export { httpLoad };
 
 // Every flow once, in an order where later flows find what earlier ones made
 // (orders for the admin order flows, etc.). Cookies are cleared between flows

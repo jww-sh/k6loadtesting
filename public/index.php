@@ -946,7 +946,7 @@ if ($triggerResult !== null) {
 }
 
 if ($canTrigger) {
-    $envLabel    = $environmentId !== '' ? ' on <code>' . $h($environmentId) . '</code>' : '';
+    $envLabel    = '';
     $adminOk     = (getenv('ADMIN_USER') !== false && getenv('ADMIN_USER') !== '');
     $adminBadge  = $adminOk
         ? '<span class="notice-admin admin-ok">&#x2713; Admin credentials set — admin and customer flows will run.</span>'
@@ -970,7 +970,7 @@ if ($canTrigger) {
     $triggerSection = <<<HTML
     <section class="card">
       <h2>Run a load test{$envLabel}</h2>
-      <p class="section-intro">Triggers the <code>loadtesting-k6</code> task in its own isolated container — the web UI stays responsive while it runs.</p>
+      <p class="section-intro">Triggers an on-demand k6 load test in its own isolated container — the web UI stays responsive while it runs.</p>
       <form method="post" action="/" id="run-form">
         <input type="hidden" name="action" value="run_task">
         <input type="hidden" name="csrf"   value="{$csrf}">
@@ -1208,7 +1208,7 @@ $runsHtml = runsTable($reportsBase, $h, $csrf);
 <main class="site-main">
 
   <h1 class="page-title">k6 Load Testing</h1>
-  <p class="page-sub">Magento Performance Toolkit benchmark — runs as an on-demand Upsun task in its own isolated container.</p>
+  <p class="page-sub">On-demand k6 load testing — trigger, monitor, and review results for any web application.</p>
 
   <?= $triggerSection ?>
 

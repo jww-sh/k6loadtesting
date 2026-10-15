@@ -10,7 +10,7 @@
 //   cleanup    cancel/remove k6-created data
 // See README.md for all variables.
 import http from 'k6/http';
-import { htmlReport } from './lib/k6-reporter.js';
+import { generateReport } from './lib/report.js';
 import { cfg, mix, hasAdmin } from './lib/config.js';
 import { weighted } from './lib/http.js';
 import { discover } from './lib/data.js';
@@ -224,10 +224,11 @@ export default function (data) {
 export function handleSummary(data) {
   const dir = __ENV.K6_REPORT_DIR || '';
   if (!dir) return {};
+  const runName = dir.split('/').pop() || '';
   return {
-    [`${dir}/report.html`]: htmlReport(data, {
-      title: `k6 — ${cfg.profile} profile`,
-      thresholdStatuses: true,
+    [`${dir}/report.html`]: generateReport(data, {
+      title:   `k6 — ${cfg.profile} profile`,
+      runName,
     }),
   };
 }

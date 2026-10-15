@@ -88,9 +88,6 @@ tasks:
         curl -fsSL "https://github.com/grafana/k6/releases/download/${K6_VERSION}/k6-${K6_VERSION}-linux-amd64.tar.gz" \
           | tar -xz --strip-components=1 "k6-${K6_VERSION}-linux-amd64/k6"
         ./k6 version
-        # k6-reporter: HTML summary report generator (handleSummary)
-        curl -fsSL "https://raw.githubusercontent.com/benc-uk/k6-reporter/main/dist/bundle.js" \
-          -o lib/k6-reporter.js
 
     run:
       command: |

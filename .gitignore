@@ -1,8 +1,5 @@
 # k6 binary is downloaded by the Upsun build hook — do not commit it
 k6/k6
 
-# k6-reporter bundle is downloaded by the task build hook
-k6/lib/k6-reporter.js
-
 # Local report output when running run-task.sh outside Upsun
 k6/reports/

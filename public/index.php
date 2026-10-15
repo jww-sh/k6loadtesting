@@ -784,59 +784,6 @@ if (str_starts_with($_uri, '/k6-reports')) {
         exit;
     }
 
-    // Inject a themed sticky nav bar into report.html instead of serving it raw.
-    if (basename($file) === 'report.html' && $ext === 'html') {
-        $runName = rawurldecode(explode('/', $path, 2)[0]);
-        $runHref = '/k6-reports/' . rawurlencode($runName);
-        $baseDir = dirname($file);
-
-        $navLinks = '';
-        if (is_file("$baseDir/failures.jsonl") && filesize("$baseDir/failures.jsonl") > 0) {
-            $navLinks .= '<a href="' . $runHref . '/failures" class="k6nav-link k6nav-warn">&#x26A0; Failures</a>';
-        }
-        foreach (['k6.log', 'summary.json', 'run-info.json', 'console.log'] as $f) {
-            if (is_file("$baseDir/$f")) {
-                $navLinks .= '<a href="' . $runHref . '/' . $f . '" class="k6nav-link">' . $f . '</a>';
-            }
-        }
-
-        $navBar = <<<NAV
-        <style>
-        .k6nav{position:sticky;top:0;z-index:99999;display:flex;align-items:center;gap:8px;
-          flex-wrap:wrap;background:#191C1E;border-bottom:1px solid #2B3134;
-          padding:0 20px;min-height:48px;font-family:'Space Grotesk',system-ui,sans-serif;
-          box-shadow:0 1px 4px rgba(0,0,0,.5)}
-        .k6nav a{text-decoration:none;transition:color .12s}
-        .k6nav-back{color:#B4BABD;font-size:13px}
-        .k6nav-back:hover{color:#E1E3E4}
-        .k6nav-sep{color:#41484D;font-size:16px;user-select:none}
-        .k6nav-title{color:#E1E3E4;font-size:13px;font-weight:600}
-        .k6nav-spacer{flex:1}
-        .k6nav-link{color:#B4BABD;font-size:12px;padding:4px 10px;border:1px solid #2B3134;
-          border-radius:5px;white-space:nowrap}
-        .k6nav-link:hover{border-color:#6046FF;color:#806BFF}
-        .k6nav-warn{color:#fde68a;border-color:#5a4f20}
-        .k6nav-warn:hover{border-color:#fde68a;color:#fde68a}
-        </style>
-        <div class="k6nav">
-          <a href="/" class="k6nav-back">&#x2190; All runs</a>
-          <span class="k6nav-sep">/</span>
-          <a href="{$runHref}" class="k6nav-back">{$h($runName)}</a>
-          <span class="k6nav-sep">/</span>
-          <span class="k6nav-title">report.html</span>
-          <div class="k6nav-spacer"></div>
-          {$navLinks}
-        </div>
-        NAV;
-
-        $content = file_get_contents($file);
-        // Inject nav bar immediately after the opening <body> tag
-        $content = preg_replace_callback('/<body[^>]*>/i', fn($m) => $m[0] . $navBar, $content, 1);
-        header('Content-Type: text/html; charset=utf-8');
-        echo $content;
-        exit;
-    }
-
     header('Content-Type: ' . $fileTypes[$ext]);
     header('Content-Length: ' . filesize($file));
     readfile($file);
@@ -914,6 +861,14 @@ if ($canTrigger
                 if (!empty($_POST['cleanup_customers'])) $vars['env:CLEANUP_CUSTOMERS'] = '1';
                 if (!empty($_POST['cleanup_admins']))    $vars['env:CLEANUP_ADMINS']    = '1';
             }
+            // Magento admin credentials (for admin-using profiles)
+            if (in_array($profile, ['combined', 'graphql', 'admin', 'smoke', 'cleanup'], true)) {
+                $au = trim($_POST['admin_user'] ?? '');
+                $ap = trim($_POST['admin_password'] ?? '');
+                if ($au !== '') $vars['env:ADMIN_USER']     = $au;
+                if ($ap !== '') $vars['env:ADMIN_PASSWORD'] = $ap;
+            }
+
             $bau = trim($_POST['basic_auth_user'] ?? '');
             $bap = trim($_POST['basic_auth_password'] ?? '');
             if ($bau !== '') $vars['env:BASIC_AUTH_USER']     = $bau;
@@ -1079,14 +1034,24 @@ if ($canTrigger) {
             </div>
           </div>
 
-          <!-- Basic auth: all except cleanup -->
+          <!-- Magento admin credentials: combined, graphql, admin, smoke, cleanup -->
+          <div class="form-group" id="fg-admin-creds-user">
+            <label for="f-admin-user">Magento admin user <span class="label-hint">(leave blank to use env var)</span></label>
+            <input id="f-admin-user" name="admin_user" type="text" class="form-control" autocomplete="off" placeholder="admin">
+          </div>
+          <div class="form-group" id="fg-admin-creds-pass">
+            <label for="f-admin-pass">Magento admin password <span class="label-hint">(leave blank to use env var)</span></label>
+            <input id="f-admin-pass" name="admin_password" type="password" class="form-control" autocomplete="new-password">
+          </div>
+
+          <!-- HTTP basic auth: crawler, combined, graphql, storefront, admin, smoke -->
           <div class="form-group" id="fg-basic-auth-user">
-            <label for="f-bau">HTTP Basic auth user <span class="label-hint">(optional)</span></label>
-            <input id="f-bau" name="basic_auth_user" type="text" class="form-control" autocomplete="username" placeholder="staging">
+            <label for="f-bau">HTTP Basic auth user <span class="label-hint">(optional — staging environments)</span></label>
+            <input id="f-bau" name="basic_auth_user" type="text" class="form-control" autocomplete="off" placeholder="staging">
           </div>
           <div class="form-group" id="fg-basic-auth-pass">
             <label for="f-bap">HTTP Basic auth password <span class="label-hint">(optional)</span></label>
-            <input id="f-bap" name="basic_auth_password" type="password" class="form-control" autocomplete="current-password">
+            <input id="f-bap" name="basic_auth_password" type="password" class="form-control" autocomplete="new-password">
           </div>
 
         </div><!-- /.form-grid -->
@@ -1107,14 +1072,14 @@ if ($canTrigger) {
         // Which field groups each profile shows
         var GROUPS = {
           crawler:    ['url','vus','duration','ramp','fpc','crawler','basic-auth-user','basic-auth-pass'],
-          combined:   ['url','vus','admin-vus','duration','ramp','fpc','admin-path','basic-auth-user','basic-auth-pass','admin-notice'],
-          graphql:    ['url','vus','admin-vus','duration','ramp','fpc','admin-path','basic-auth-user','basic-auth-pass','admin-notice'],
+          combined:   ['url','vus','admin-vus','duration','ramp','fpc','admin-path','admin-creds-user','admin-creds-pass','basic-auth-user','basic-auth-pass','admin-notice'],
+          graphql:    ['url','vus','admin-vus','duration','ramp','fpc','admin-path','admin-creds-user','admin-creds-pass','basic-auth-user','basic-auth-pass','admin-notice'],
           storefront: ['url','vus','duration','ramp','fpc','basic-auth-user','basic-auth-pass'],
-          admin:      ['url','admin-vus','duration','ramp','admin-path','basic-auth-user','basic-auth-pass','admin-notice'],
-          smoke:      ['url','smoke','admin-path','basic-auth-user','basic-auth-pass','admin-notice'],
-          cleanup:    ['admin-path','cleanup','admin-notice'],
+          admin:      ['url','admin-vus','duration','ramp','admin-path','admin-creds-user','admin-creds-pass','basic-auth-user','basic-auth-pass','admin-notice'],
+          smoke:      ['url','smoke','admin-path','admin-creds-user','admin-creds-pass','basic-auth-user','basic-auth-pass','admin-notice'],
+          cleanup:    ['admin-path','admin-creds-user','admin-creds-pass','cleanup','admin-notice'],
         };
-        var ALL = ['url','vus','admin-vus','duration','ramp','fpc','crawler','smoke','cleanup','admin-path','basic-auth-user','basic-auth-pass','admin-notice'];
+        var ALL = ['url','vus','admin-vus','duration','ramp','fpc','crawler','smoke','cleanup','admin-path','admin-creds-user','admin-creds-pass','basic-auth-user','basic-auth-pass','admin-notice'];
         function toggleFields(p){
           var show = GROUPS[p] || [];
           ALL.forEach(function(g){

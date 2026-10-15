@@ -237,6 +237,11 @@ label{font-size:10px;font-weight:700;color:var(--text-dim);letter-spacing:.07em;
   font-size:14px;font-weight:600;border:1px solid var(--border-hi);border-radius:6px;
   cursor:pointer;letter-spacing:.01em;transition:all .15s}
 .btn-ghost:hover{background:var(--border);color:var(--text);border-color:var(--border-hi)}
+.btn-danger-sm{display:inline-flex;align-items:center;padding:4px 10px;
+  background:transparent;color:var(--err-text);font-family:var(--font);
+  font-size:11px;font-weight:600;border:1px solid var(--err-border);border-radius:5px;
+  cursor:pointer;line-height:1;transition:all .15s}
+.btn-danger-sm:hover{background:var(--err-bg);border-color:var(--err-text)}
 
 /* ── Banners ── */
 .banner{margin-top:18px;padding:14px 18px;border-radius:8px;font-size:13px;
@@ -354,7 +359,31 @@ function runTaskViaCli(string $cliBin, string $taskId, array $variables): array
     return ['ok' => $exit === 0, 'output' => $output, 'exitCode' => $exit];
 }
 
-function runsTable(string $base, callable $h): string
+function deleteRun(string $base, string $runName): array
+{
+    if ($base === '' || !is_dir($base)) {
+        return ['ok' => false, 'error' => 'Reports directory not available.'];
+    }
+    $dir = realpath($base . '/' . $runName);
+    if (!$dir || !str_starts_with($dir, $base . '/') || !is_dir($dir)) {
+        return ['ok' => false, 'error' => 'Run not found.'];
+    }
+    $it = new RecursiveIteratorIterator(
+        new RecursiveDirectoryIterator($dir, FilesystemIterator::SKIP_DOTS),
+        RecursiveIteratorIterator::CHILD_FIRST
+    );
+    foreach ($it as $fileInfo) {
+        $fileInfo->isDir() ? rmdir($fileInfo->getRealPath()) : unlink($fileInfo->getRealPath());
+    }
+    rmdir($dir);
+    $latest = $base . '/latest';
+    if (is_link($latest) && basename((string) readlink($latest)) === $runName) {
+        unlink($latest);
+    }
+    return ['ok' => true, 'run' => $runName];
+}
+
+function runsTable(string $base, callable $h, string $csrf = ''): string
 {
     if ($base === '' || !is_dir($base)) {
         return '<p class="no-runs">No runs yet — start a load test above.</p>';
@@ -408,6 +437,17 @@ function runsTable(string $base, callable $h): string
             }
         }
 
+        $deleteBtn = $csrf !== ''
+            ? '<form method="post" action="/" style="display:inline">'
+              . '<input type="hidden" name="action" value="delete_run">'
+              . '<input type="hidden" name="csrf"   value="' . $csrf . '">'
+              . '<input type="hidden" name="run"    value="' . $h($run) . '">'
+              . '<button type="submit" class="btn-danger-sm"'
+              . ' onclick="return confirm(\'Delete run ' . $h($run) . '?\')">'
+              . '&#x1F5D1; Delete</button>'
+              . '</form>'
+            : '';
+
         $rows .= '<tr>'
             . '<td class="td-ts"><a href="' . $href . '">' . $ts . '</a></td>'
             . '<td><code class="run-profile">' . $h($profile) . '</code></td>'
@@ -415,12 +455,13 @@ function runsTable(string $base, callable $h): string
             . '<td class="td-iters">' . $iters . '</td>'
             . '<td class="td-fail">' . $failCell . '</td>'
             . '<td class="td-files">' . implode('', $links) . '</td>'
+            . '<td>' . $deleteBtn . '</td>'
             . '</tr>';
     }
 
     return '<div class="table-wrap"><table class="runs-table">'
         . '<thead><tr><th>Run (UTC)</th><th>Profile</th><th>Result</th>'
-        . '<th>Iterations</th><th>Failures</th><th>Files</th></tr></thead>'
+        . '<th>Iterations</th><th>Failures</th><th>Files</th><th></th></tr></thead>'
         . '<tbody>' . $rows . '</tbody></table></div>';
 }
 
@@ -792,6 +833,20 @@ if ($canTrigger
     $_SESSION['csrf'] = bin2hex(random_bytes(24));
 }
 
+$deleteResult = null;
+
+if ($_SERVER['REQUEST_METHOD'] === 'POST'
+    && ($_POST['action'] ?? '') === 'delete_run'
+) {
+    if (!hash_equals($_SESSION['csrf'] ?? '', $_POST['csrf'] ?? '')) {
+        $deleteResult = ['ok' => false, 'error' => 'Invalid security token — please reload.'];
+    } else {
+        $runToDelete  = basename($_POST['run'] ?? '');
+        $deleteResult = deleteRun($reportsBase, $runToDelete);
+    }
+    $_SESSION['csrf'] = bin2hex(random_bytes(24));
+}
+
 $csrf = $h($_SESSION['csrf']);
 
 $bannerHtml = '';
@@ -902,7 +957,18 @@ if ($canTrigger) {
     HTML;
 }
 
-$runsHtml = runsTable($reportsBase, $h);
+$deleteBannerHtml = '';
+if ($deleteResult !== null) {
+    if ($deleteResult['ok']) {
+        $deleteBannerHtml = '<div class="banner banner-ok" style="margin-bottom:16px">'
+            . '<strong>Run deleted:</strong> <code>' . $h($deleteResult['run'] ?? '') . '</code></div>';
+    } else {
+        $deleteBannerHtml = '<div class="banner banner-err" style="margin-bottom:16px">'
+            . '<strong>Delete failed:</strong> ' . $h($deleteResult['error'] ?? 'Unknown error') . '</div>';
+    }
+}
+
+$runsHtml = runsTable($reportsBase, $h, $csrf);
 
 ?><!doctype html>
 <html lang="en" data-theme="dark">
@@ -961,6 +1027,7 @@ upsun task:run loadtesting-k6 --variable env:PROFILE=cleanup --wait</pre>
   <section class="card">
     <h2>Runs</h2>
     <p class="section-intro">Click a timestamp to view the full report — metrics, thresholds, log, and file downloads. Reload after a task finishes to see new results.</p>
+    <?= $deleteBannerHtml ?>
     <?= $runsHtml ?>
   </section>
 

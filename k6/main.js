@@ -150,9 +150,11 @@ function needsBootstrap() {
 export function setup() {
   if (!needsBootstrap()) return {};
   const catalog = discover();
-  console.log(
-    `Catalog: ${catalog.categories.length} categories, ${catalog.simples.length} simple, ${catalog.configurables.length} configurable products`
-  );
+  if (catalog.categories.length > 0 && catalog.simples.length > 0 && catalog.configurables.length > 0) {
+    console.log(
+      `Catalog: ${catalog.categories.length} categories, ${catalog.simples.length} simple, ${catalog.configurables.length} configurable products`
+    );
+  }
   let boot = { customers: [], admin: null, k6Products: [] };
   if (hasAdmin()) {
     const wantAdminUsers = cfg.profile !== 'storefront' && cfg.adminVus > 0;

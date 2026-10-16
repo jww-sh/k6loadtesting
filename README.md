@@ -158,7 +158,7 @@ k6 run -e URL=https://shop.example -e PROFILE=smoke -e THINK_MS=0 \
 | `THINK_MS` / `THINK_DEVIATION_MS` | `2000` / `1000` | pause between requests |
 | `FPC` | `ON` | `OFF` adds a cache-buster to storefront GETs |
 | `PCT_<FLOW>` | see table | override mix weights, e.g. `PCT_GUEST_CHECKOUT=10` |
-| `CUSTOMER_COUNT` | `max(20, VUS)` | automatically scaled to VUS so each VU gets its own customer account and carts don't collide |
+| `CUSTOMER_COUNT` | `max(20, VUS×3)` | automatically scaled to VUS so each VU gets its own customer account and carts don't collide |
 | `ADMIN_USER` / `ADMIN_PASSWORD` / `ADMIN_PATH` | – / – / `admin` | |
 | `SEARCH_TERMS` | `bag,jacket,...` | comma separated |
 | `ADDRESS_*`, `PAYMENT_METHOD`, `SHIPPING_CARRIER`, `SHIPPING_METHOD` | US / checkmo / flatrate | checkout data |

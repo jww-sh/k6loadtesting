@@ -272,7 +272,7 @@ function ratioMetricsTable(metrics) {
         const barCls = isFailMetric
           ? (pct < 1 ? 'pbar-ok' : pct < 5 ? 'pbar-warn' : 'pbar-err')
           : (pct > 95 ? 'pbar-ok' : pct > 50 ? 'pbar-warn' : 'pbar-err');
-        bar = progressBar(isFailMetric ? pct : pct, barCls);
+        bar = progressBar(pct, barCls);
       } else if (m.type === 'trend') {
         primary   = fmtMs(v.avg);
         secondary = `p95: ${fmtMs(v['p(95)'])}`;
@@ -354,7 +354,7 @@ function customMetricsSection(metrics, trendStats) {
       primary   = fmtRate(v.rate);
       secondary = `${fmtNum(v.passes)} pass / ${fmtNum(v.fails)} fail`;
       const isFailMetric = name.includes('error') || name.includes('fail');
-      bar = progressBar(isFailMetric ? pct : pct, isFailMetric
+      bar = progressBar(pct, isFailMetric
         ? (pct < 5 ? 'pbar-ok' : 'pbar-err')
         : (pct > 95 ? 'pbar-ok' : 'pbar-warn'));
     } else if (metric.type === 'counter') {
@@ -578,7 +578,7 @@ const JS = `
   function applyTheme(t){
     document.documentElement.setAttribute('data-theme',t);
     if(btn){btn.textContent=t==='dark'?'☀':'☾';btn.title=t==='dark'?'Switch to light mode':'Switch to dark mode';}
-    try{localStorage.setItem('k6-theme',t);}catch(e){}
+    try{localStorage.setItem('theme',t);}catch(e){}
   }
   applyTheme(getTheme());
   if(btn) btn.addEventListener('click',function(){applyTheme(getTheme()==='dark'?'light':'dark');});
@@ -668,7 +668,7 @@ export function generateReport(data, opts = {}) {
   <style>${CSS}</style>
   <script>
     (function(){
-      var saved=localStorage.getItem('k6-theme');
+      var saved=localStorage.getItem('theme');
       var prefersDark=window.matchMedia('(prefers-color-scheme:dark)').matches;
       var theme=saved||(prefersDark?'dark':'light');
       document.documentElement.setAttribute('data-theme',theme);

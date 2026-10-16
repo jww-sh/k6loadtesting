@@ -10,9 +10,11 @@ import { derivedPassword } from '../lib/bootstrap.js';
 
 const IN_STOCK = '<span>In stock</span>';
 
-// Scenarios run separately (not combined), so VU IDs always start from 1 and
-// reach at most vus — well within the customerCount pool (vus*3). Plain modulo
-// gives each VU a unique customer with no cross-scenario collision possible.
+// VU IDs start from 1 within each scenario and reach at most vus. customerCount
+// defaults to vus*3 so there are enough slots for storefront, graphql, and admin
+// to each use a distinct slice — but only if they pick from different ranges.
+// In combined, storefront and graphql both use the same modulo so they share
+// customers; the overlap is fine in practice because each VU owns its session.
 export function customerFor(data) {
   const n = data.customers.length;
   return data.customers[(exec.vu.idInTest - 1) % n];
